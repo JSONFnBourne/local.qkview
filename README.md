@@ -68,12 +68,24 @@ Then open http://localhost:3001 and drag a qkview onto the page.
 
 ### Windows (PowerShell)
 
+**Prerequisites (one-time, machine-wide).** If `py --version` and `node --version` already print versions in a fresh PowerShell window, skip this block. Otherwise install Python and Node via `winget` (built into Windows 10/11):
+
+```powershell
+winget install --id Python.Python.3.12 -e
+winget install --id OpenJS.NodeJS.LTS -e
+```
+
+Then **close this PowerShell window and open a new one** — `winget` updates PATH but existing shells don't see it until restart. Verify `py --version`, `node --version`, and `npm --version` all succeed before moving on.
+
+**Install and run:**
+
 ```powershell
 git clone https://github.com/JSONFnBourne/local.qkview.git
 cd local.qkview
 
 # One-time, per-shell: allow the venv activation and launcher .ps1 scripts to run.
 # Scoped to this process only — does not change your machine-wide policy.
+# Repeat this in any new PowerShell window before running Activate.ps1 or scripts\run.ps1.
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 # Backend
