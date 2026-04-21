@@ -22,11 +22,18 @@ from typing import IO, Callable, Iterable, Optional
 from lxml import etree  # type: ignore
 
 
-# Bundle-index suffix: TMOS explodes each ca-bundle.crt file into one
-# `certificate_summary` record per trusted CA, named `.../<bundle>.crt.NNN`.
-# First-class user-imported / device certs are named without that numeric
-# tail, so a trailing `.crt.<digits>` is a reliable signal that a cert row
-# is trust-store material and not a user resource.
+# Trust-store bundle constituents — TMOS explodes `ca-bundle.crt` and
+# `f5-ca-bundle.crt` into one `certificate_summary` row per trusted CA,
+# named `.../ca-bundle.crt.<suffix>`. Historical suffixes:
+#   • plain integers: `.crt.0`, `.crt.1`, … (original scheme)
+#   • pre-remove markers: `.crt.prerem_<something>` (carried across OS
+#     upgrades as soft-deletion tombstones for rollback)
+# First-class user-imported / device certs are named without any suffix
+# after `.crt`, so a path substring `/<bundle>.crt.` is a reliable
+# bundle-constituent signal regardless of what comes after.
+_BUNDLE_PATH_RE = re.compile(r"(?:^|/)(?:f5-)?ca-bundle\.crt\.")
+# Kept as a belt-and-suspenders fallback for any `.crt.NNN` row whose
+# path doesn't carry the canonical bundle basename.
 _BUNDLE_INDEX_RE = re.compile(r"\.crt\.\d+$")
 
 
@@ -226,16 +233,17 @@ class XmlStats:
         TMOS ships two public-CA trust bundles (`ca-bundle.crt`,
         `f5-ca-bundle.crt`) containing 900+ browser-trust CAs, each
         exported as an individual `certificate_summary` row named
-        `.../ca-bundle.crt.NNN` or `.../f5-ca-bundle.crt.NNN`. These
-        aren't operationally interesting (rotating them is an F5
-        platform-update concern, not a deployment concern) and they
+        `.../ca-bundle.crt.<suffix>` or `.../f5-ca-bundle.crt.<suffix>`.
+        Suffix format varies (plain integer, `prerem_*` tombstone after
+        an upgrade, etc.) so we match the `<bundle>.crt.` path segment
+        rather than the suffix shape. These rows aren't operationally
+        interesting (rotation is an F5 platform-update concern) and they
         drown the user-imported / device certs in the expiry panel.
-
-        Any name ending in `.crt.<digits>` is a bundle index. First-class
-        user-imported certs are named without the numeric tail.
         """
+        def _is_bundle(name: str) -> bool:
+            return bool(_BUNDLE_PATH_RE.search(name) or _BUNDLE_INDEX_RE.search(name))
         return [r for r in self.certificates
-                if not _BUNDLE_INDEX_RE.search(r.fields.get("name") or "")]
+                if not _is_bundle(r.fields.get("name") or "")]
 
     # ── top-N tables ───────────────────────────────────────────────────
 
@@ -274,8 +282,9 @@ class XmlStats:
     def top_expiring_certificates(self, n: int = 50) -> list[StatRecord]:
         """Return the N user/device certificates with the soonest expiration.
 
-        Trust-store bundle entries (`/Common/ca-bundle.crt.NNN`) are
-        excluded. `expiration_date` is a unix epoch seconds value;
+        Trust-store bundle entries (`/Common/ca-bundle.crt.*` and
+        `/Common/f5-ca-bundle.crt.*`, including `prerem_*` upgrade
+        tombstones) are excluded. `expiration_date` is a unix epoch seconds value;
         records with unparseable / missing dates sort last so valid
         certs always rank first.
         """
