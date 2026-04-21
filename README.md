@@ -75,18 +75,28 @@ winget install --id Python.Python.3.12 -e
 winget install --id OpenJS.NodeJS.LTS -e
 ```
 
-Then **close this PowerShell window and open a new one** — `winget` updates PATH but existing shells don't see it until restart. Verify `py --version`, `node --version`, and `npm --version` all succeed before moving on.
+Then **close this PowerShell window and open a new one** — `winget` updates PATH but existing shells don't see it until restart.
 
-**Install and run:**
+**Every PowerShell window you open for this project needs this one line first** — `npm`, the venv's `Activate.ps1`, and `scripts\run.ps1` are all PowerShell scripts, and Windows blocks them under the default `Restricted` policy. The scope is `Process`, so it only affects the current window and reverts when you close it:
 
 ```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+Verify prerequisites are on PATH:
+
+```powershell
+py --version      # expect 3.10 or newer
+node --version    # expect v20.9 or newer
+npm --version
+```
+
+**Install (one-time):**
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 git clone https://github.com/JSONFnBourne/local.qkview.git
 cd local.qkview
-
-# One-time, per-shell: allow the venv activation and launcher .ps1 scripts to run.
-# Scoped to this process only — does not change your machine-wide policy.
-# Repeat this in any new PowerShell window before running Activate.ps1 or scripts\run.ps1.
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 # Backend
 py -3 -m venv .venv
@@ -98,16 +108,27 @@ cd webapp
 npm install
 npm run build
 cd ..
+```
 
-# Terminal 1:
+**Run — Terminal 1 (backend):**
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+cd $HOME\local.qkview
 .\.venv\Scripts\Activate.ps1
 cd backend
 uvicorn main:app --host 127.0.0.1 --port 8001
+```
 
-# Terminal 2:
-cd webapp
+**Run — Terminal 2 (frontend, new PowerShell window):**
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+cd $HOME\local.qkview\webapp
 $env:PORT = '3001'; $env:FASTAPI_BACKEND_URL = 'http://127.0.0.1:8001'; npm run start
 ```
+
+Then open http://localhost:3001 and drag a qkview onto the page. (Adjust `$HOME\local.qkview` if you cloned elsewhere.)
 
 ### One-shot launchers
 
