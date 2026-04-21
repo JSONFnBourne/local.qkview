@@ -2,7 +2,55 @@
 
 Running log of Claude Code sessions in this repo. Each session has three buckets: completed work, unresolved issues, next steps. Most recent session at the top.
 
-Last updated: 2026-04-20 (Session 2)
+Last updated: 2026-04-21 (Session 3)
+
+---
+
+## Session 3 — 2026-04-20
+
+Focus: full audit of the seven sample archives against the fork (3001 / 8001) vs the parent `f5.assistant` (3000 / 8000). User asked two things in sequence — (1) grade each archive for what renders cleanly, (2) diff fork vs parent and reconcile so the 3001 pages match 3000. No code changes were made this session; the second step surfaced a direction question that needs a user decision before editing.
+
+### Completed — research only
+
+| Area | Finding | Evidence |
+|---|---|---|
+| All 7 archives analyzed end-to-end on fork backend | Each POSTed as raw octet-stream to `http://127.0.0.1:8001/api/analyze`; final `{"type":"result"}` event captured to `/tmp/qkview-analysis-results/<name>.result.json`. Sizes 18 MB → 773 MB, times 10 s → 77 s. | [backend/main.py:120-379](backend/main.py#L120-L379) (NDJSON stream) |
+| All 7 archives analyzed end-to-end on parent backend | Same POST pattern against `:8000`, results to `/tmp/qkview-analysis-parent/<name>.result.json`. Runtimes within a couple of seconds of fork. | — |
+| Archive family + variant detection verified | Fork's `_detect_f5os_variant` correctly tags `rseries` / `velos-partition` / `velos-controller` for the three F5OS archives; three TMOS archives carry `""`; partition list matches on all. | [backend/qkview_analyzer/extractor.py:526-561](backend/qkview_analyzer/extractor.py#L526-L561) |
+| Per-archive render fitness reported | Panels that render cleanly on each archive vs. keys the fork collects but never paints. See next table. | — |
+| **cluster_nodes rendering gap identified** | `f5os_overview.cluster_nodes` carries 8 blades on `partition.tar` and 1 node on `rSeries.tar`, but the per-blade table at [page.tsx:906](webapp/app/qkview/page.tsx#L906) is gated behind `isController`. Non-controller F5OS archives lose that data silently. `cluster_summary` string still renders in the header. | [webapp/app/qkview/page.tsx:906-932](webapp/app/qkview/page.tsx#L906-L932) |
+| Fork vs parent — backend payloads | Effectively identical across all 7 archives. Same key set, same partition lists, same app/finding/entry counts, same xml_stats sections. Only delta: fork adds `device_info.f5os_variant` (parent omits the field). | — |
+| Fork vs parent — webapp `page.tsx` | Fork is **strictly a superset**. Diff: 98 lines unique to fork, 19 lines unique to parent (all of which are lines the fork *rewrote*, not feature removals). Fork-only additions: `isController` branch, Controller Summary card, `cluster_nodes` per-blade table, tenant-not-included banner, partition click-to-toggle, empty-bucket `displayedApps` fallback, state reset on new upload (commit `96b597d`). | — |
+| Fork vs parent — other webapp files | All differences intentional fork identity: backend URL `8001` (vs `8000`), brand `Local.Qkview` (vs `F5 Assistant`), nav strips `Knowledge` / `Reference` / `Generator` / `Validator` links per [CLAUDE.md](CLAUDE.md) scope rules. | [webapp/app/api/analyze/route.ts:5](webapp/app/api/analyze/route.ts#L5), [webapp/app/layout.tsx:11-12](webapp/app/layout.tsx#L11-L12) |
+
+### Per-archive render report (fork 3001)
+
+| Archive | Family | VS apps | Partitions | Tenants / blades | Renders cleanly | Collected-but-dropped |
+|---|---|---:|---|---|---|---|
+| `tmos_ve.qkview` | TMOS Z100 17.5.1.5 | 7 | `[Common]` | — | all TMOS panels | — |
+| `tmos_admin_part.qkview` | TMOS C112 13.1.3 | 78 | `[Common, DMZ, public]` | — | all TMOS panels incl. partition switch | — |
+| `iseries.qkview` | TMOS C117 17.5.1.3 | 2 | `[Common]` | — | all TMOS panels (small but legit) | — |
+| `vCMP.tgz` | TMOS Z101 17.1.3 | **1961** | `[Common]` | — | all panels; table is un-virtualized | — |
+| `rSeries.tar` | F5OS-A `rseries` | 0 | — | 2 tenants, 1 node | overview + portgroups + tenants | **cluster_nodes (1 node)** |
+| `syscon.tar` | F5OS-C `velos-controller` | 0 | — | 0 | Controller Summary (PID/Code/Part #) | empty cluster_nodes/portgroups/tenants (legit — syscon) |
+| `partition.tar` | F5OS-C `velos-partition` | 0 | — | 5 tenants, 8 blades | overview + portgroups + tenants | **cluster_nodes (8 blades: 2 ready / 6 not)** |
+
+### Unresolved / carried forward
+
+- **User directional decision needed before any 3001-vs-3000 reconciliation edit.** Options presented to user:
+  - (A) Remove fork enhancements to match parent — strips Controller Summary, cluster_nodes table, tenant banner, partition click-toggle, state reset (undoes commit `96b597d` + related).
+  - (B) Keep fork enhancements, pull in any parent-only feature the fork lacks — but the bidirectional diff found zero parent-only features on `page.tsx`.
+  - (C) A runtime rendering difference the user spotted in the browser that doesn't come from source drift.
+  - My recommendation is (B)/(C): fork's extras are real bug fixes + real value, and [CLAUDE.md](CLAUDE.md) explicitly forbids modifying the parent. Awaiting user.
+- **cluster_nodes render guard is still too narrow.** The render gate at [webapp/app/qkview/page.tsx:906](webapp/app/qkview/page.tsx#L906) uses `isController && f5osOverview.cluster_nodes.length > 0`. Relaxing the controller-only half to just `cluster_nodes.length > 0` would light up blade inventory for VELOS partition + rSeries with zero other changes. Held pending the (A)/(B)/(C) decision above — under (A) this needs to be removed instead of widened.
+- **`.run_one.sh` / `.run_one_parent.sh` sit in the working tree** as leading-dot runner scripts used to drive the seven-archive sweep against each backend. Kept local (not committed) — session-research tooling, not product code. `.gitignore` doesn't cover them; next session should decide: promote to `scripts/` or delete.
+- **Same pre-existing uncommitted file set as Session 2.** Still dirty: `.gitignore`, `CLAUDE.md`, `README.md`, `backend/main.py`, `backend/qkview_analyzer/xml_stats.py`, `scripts/run.{sh,ps1}`, `webapp/app/api/analyze/route.ts`, `webapp/app/api/qkview/[id]/apps/[...path]/route.ts`. Not touched this session — see TODO "High" carryover.
+
+### Next session should open with
+
+1. Get the reconciliation direction from the user ((A)/(B)/(C) above). Without that call, no edits ship.
+2. If the answer is (B), ship the one-line gate relaxation on `cluster_nodes` so VELOS partition blade inventory and rSeries node info render for non-controller F5OS.
+3. Clean up the working tree: triage the Session-1 pre-existing `M` files and decide whether to keep or delete the `.run_one*.sh` sweep scripts.
 
 ---
 
