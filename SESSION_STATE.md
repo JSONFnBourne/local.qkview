@@ -2,7 +2,44 @@
 
 Running log of Claude Code sessions in this repo. Each session has three buckets: completed work, unresolved issues, next steps. Most recent session at the top.
 
-Last updated: 2026-04-21 (Session 5)
+Last updated: 2026-04-21 (Session 6)
+
+---
+
+## Session 6 — 2026-04-21
+
+Focus: post-Session-5 follow-through. Session 5 had closed with three accepted deferrals (rebuild webapp for the rename, decide how to handle the public PII leak, close out the `.run_one*.sh` scripts). User greenlit all three this turn — including the destructive option on the PII leak — plus asked a Windows install verification question that surfaced a small README gap.
+
+### Completed
+
+| Area | Change | Evidence |
+|---|---|---|
+| Webapp rebuild + restart | Background `npm run build` (TypeScript + Turbopack, 5/5 static pages), kill the stale 3001 next-server, start a fresh one against the new `.next/` build. Confirmed "QKView Analyzer" (renamed last session) live in the served HTML on both `/` and `/qkview`. | — |
+| **History rewrite to scrub the public PII leak** | User authorized the destructive option: `git filter-repo` against a 9-pattern literal-replacement file covering the customer-identifying strings surfaced in Session 5's audit plus broader catch-all customer prefixes / domains / IP ranges, all mapped to synthetic RFC-style equivalents. Patterns match the local scrub-helper note; not enumerated here. All 11 commits on `main` rewritten in 0.07 s; every commit SHA changed (old initial → new `f36c03c`; old HEAD → new `6d96db8`). Post-rewrite, every blob in every commit was grepped for the original patterns — zero hits. | `/tmp/qkview-scrub-replacements.txt` (replacement file, kept local) |
+| Force-push with lease | `git push --force-with-lease=main:<pre-rewrite-SHA>` — lease pinned to the Session 5 HEAD so if anyone had pushed in between the force would have aborted. Clean fast-rewrite: `+ e974248...6d96db8  main -> main (forced update)`. | — |
+| Safety refs retained locally | Before the rewrite, tagged the pre-rewrite state as `pre-scrub-backup` and branched it as `backup/pre-scrub`. Both remain local-only; user can delete when satisfied. Never pushed. | — |
+| `.run_one*.sh` closed out | Deleted both scripts from the repo root (session-research tooling carried since Session 3). Their real-customer-archive paths and per-archive `/tmp/` result dumps were the reason they had to stay untracked — no reason to keep them around now that the seven-archive sweep isn't an active workstream. | — |
+| Windows install sequence verified against README | User's proposed `git clone → py -3 -m venv → pip install → npm install → npm run build → 2-terminal uvicorn + npm run start` sequence in PowerShell confirmed as correct. [README.md:69-94](README.md#L69-L94) already has the matching block. | [README.md:69-94](README.md#L69-L94) |
+| README gap identified — PowerShell ExecutionPolicy | Windows users hitting a fresh `Activate.ps1` invocation may see an execution-policy block; `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` unblocks it once. README does not mention this today. User asked to defer the doc edit to the next session. | [README.md:77](README.md#L77) |
+
+### Caveats worth remembering
+
+- **GitHub dangling-object cache.** Force-push moved every ref off the old SHAs, but GitHub retains unreferenced commit objects for up to ~90 days and they remain reachable via direct-SHA URL (e.g. `github.com/JSONFnBourne/local.qkview/commit/f27edce`). They're no longer discoverable through the UI, no longer indexed, and will eventually be GC'd. Clearing them faster requires contacting GitHub Support for a repo-wide cache purge — not done today.
+- **Anyone who cloned between Session 5's push and Session 6's force-push** will have the leaking SHAs in their local reflog. No known clones exist outside this machine, but worth noting.
+- **Session 5's SHAs in SESSION_STATE are now stale.** The Session 5 entry below references SHAs like `f27edce`, `ef6a70c`, `f98b96a`, etc. — those were the pre-rewrite values. History rewrite changed them all. Not fixing the back-entry since the narrative is still accurate; just a reader-beware.
+- **Webapp dev server on 3001 now serves the rename**, and backend on 8001 is the fresh Session 5 restart that has the logs_db persistence. Both were confirmed working end-to-end by the user before session close.
+
+### Unresolved / carried forward
+
+- **README Windows block is missing the ExecutionPolicy note.** One-line add into the `### Windows (PowerShell)` section of [README.md](README.md) — user explicitly deferred to next session. Suggested wording: "If `Activate.ps1` fails with an execution-policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then retry."
+- **Local `backup/pre-scrub` branch + `pre-scrub-backup` tag** remain pointing at the pre-rewrite state (commit `e974248`). Useful if anything in the rewrite turns out to have been over-aggressive; delete once the user is satisfied: `git branch -D backup/pre-scrub && git tag -d pre-scrub-backup`.
+- **All Session-4 Medium-priority carryovers** are still open (logs_db retention sweep, negation-only query hardening, HAR scrub helper, vCMP-scale VS table virtualization, `partition\d*_manager` doc fix, Next.js 16 `next lint` replacement). None were touched this session.
+
+### Next session should open with
+
+1. Add the PowerShell ExecutionPolicy note to [README.md](README.md)'s Windows install block (explicitly deferred by user).
+2. Confirm user is done with the local `backup/pre-scrub` safety refs and delete them.
+3. Triage the Session-4 Medium bucket if there's bandwidth — logs_db retention sweep is probably the highest-ROI after the Windows README fix.
 
 ---
 

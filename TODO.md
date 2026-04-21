@@ -4,8 +4,8 @@ Follow-ups for Local.Qkview. Closed items get `[x]` with a `(Session N)` marker.
 
 ## High
 
-- [ ] (Session 5) Rebuild + restart webapp on 3001 so the "QKView Analyzer" rename (landed in this session's final commit) is actually rendered in the browser. Source changed after the session's last build; running `.next/` still corresponds to the pre-rename state. `cd webapp && npm run build` → kill 3001 next-server → `PORT=3001 FASTAPI_BACKEND_URL=http://127.0.0.1:8001 npm run start`.
-- [ ] (Session 5) Decide how to handle the `extractor.py` docstring PII leak. The real customer hostname + base-MAC (see local scrub-helper note for exact strings) are already public on `origin/main` via initial commit `f27edce`. Current tree is scrubbed (commit `ef6a70c`), but history retains the old values. Options: (a) accept and move on; (b) history-rewrite + force-push (destructive, affects any cached fork / mirror); (c) document as known-accepted risk in `CLAUDE.md` "Secrets, credentials, and PII". User decision.
+- [ ] (Session 6) Add a PowerShell ExecutionPolicy note to the Windows install block in [README.md](README.md#L69-L94). Deferred by user. Suggested one-liner: "If `Activate.ps1` fails with an execution-policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then retry."
+- [ ] (Session 6) Delete the local `backup/pre-scrub` branch and `pre-scrub-backup` tag once the history rewrite is confirmed good-as-shipped. `git branch -D backup/pre-scrub && git tag -d pre-scrub-backup`. Never pushed to origin, local-only safety refs.
 - [ ] (Session 2) VELOS controller tenant inventory — product decision: should `velos-controller` archives surface a read-only tenant inventory, or keep it suppressed as today? Blocks any related UI change. [webapp/app/qkview/page.tsx:944](webapp/app/qkview/page.tsx#L944)
 
 ## Medium
@@ -26,6 +26,9 @@ Follow-ups for Local.Qkview. Closed items get `[x]` with a `(Session N)` marker.
 
 ## Closed this session
 
+- [x] (Session 6) Rebuild + restart webapp on 3001 — "QKView Analyzer" rename now live in the served HTML on both `/` and `/qkview`.
+- [x] (Session 6) History rewrite to scrub the customer-identifying strings out of public git history. `git filter-repo` with a 9-pattern replacement file; all 11 commits re-SHA'd; force-pushed with `--force-with-lease` to `origin/main`. Post-rewrite grep over every blob in every commit returned zero hits on the original patterns. Old initial commit `f27edce` → new `f36c03c`.
+- [x] (Session 6) Delete `.run_one.sh` / `.run_one_parent.sh` — session-research tooling carried since Session 3, no longer needed now that the seven-archive sweep isn't an active workstream.
 - [x] (Session 5) Browser-smoke the log-search tile — confirmed working by user after two failure-mode fixes (stale next-server manifest → unstyled page; stale backend predating Session 4 code → no `logs_db/logs_<id>.db` → empty chip counts + "Not Found" on real phrase). Both resolved by killing + restarting each service against current source / build.
 - [x] (Session 5) Session 3 reconciliation decision — Option (B): 3001 / 3000 are intentionally distinct product surfaces; fork stays a superset; parent stays untouched.
 - [x] (Session 5) Relax `cluster_nodes` render gate to `f5osOverview.cluster_nodes.length > 0` — VELOS partition blade inventory + rSeries node info now render for non-controller F5OS. Commit `f98b96a`. [webapp/app/qkview/page.tsx:913](webapp/app/qkview/page.tsx#L913)
