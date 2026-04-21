@@ -72,6 +72,10 @@ Then open http://localhost:3001 and drag a qkview onto the page.
 git clone https://github.com/JSONFnBourne/local.qkview.git
 cd local.qkview
 
+# One-time, per-shell: allow the venv activation and launcher .ps1 scripts to run.
+# Scoped to this process only — does not change your machine-wide policy.
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
 # Backend
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
