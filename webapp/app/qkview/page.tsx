@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings } from 'lucide-react';
 import LogsSearchTile from '../components/LogsSearchTile';
 
@@ -376,6 +376,12 @@ export default function QKViewPage() {
     const [isDragging, setIsDragging] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [progressMsg, setProgressMsg] = useState<string>('');
+    // Wall-clock since the analyze stream started, ticked once per second.
+    // Server progress events can be 30+ seconds apart on big VELOS archives
+    // (rule scan over 800k+ entries) — without a visible counter the UI looks
+    // hung even though the backend is working.
+    const [elapsedSec, setElapsedSec] = useState(0);
+    const uploadStartRef = useRef<number | null>(null);
     const [analysisResult, setAnalysisResult] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
     const [activeCmd, setActiveCmd] = useState<string | null>(null);
@@ -387,6 +393,16 @@ export default function QKViewPage() {
     const [showRawStanzas, setShowRawStanzas] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!isUploading) return;
+        const id = window.setInterval(() => {
+            if (uploadStartRef.current != null) {
+                setElapsedSec(Math.floor((Date.now() - uploadStartRef.current) / 1000));
+            }
+        }, 1000);
+        return () => window.clearInterval(id);
+    }, [isUploading]);
 
     const rawProduct: string = analysisResult?.device_info?.product || '';
     const isF5OS = rawProduct.startsWith('F5OS');
@@ -498,6 +514,8 @@ export default function QKViewPage() {
         setIsUploading(true);
         setError(null);
         setProgressMsg('Uploading archive… 0%');
+        uploadStartRef.current = Date.now();
+        setElapsedSec(0);
 
         // XHR, not fetch, because fetch doesn't expose upload progress. The
         // body is the raw file (octet-stream) — the server reads bytes directly
@@ -594,7 +612,16 @@ export default function QKViewPage() {
         } finally {
             setIsUploading(false);
             setProgressMsg('');
+            uploadStartRef.current = null;
+            setElapsedSec(0);
         }
+    };
+
+    const formatElapsed = (sec: number): string => {
+        if (sec < 60) return `${sec}s`;
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return `${m}m ${s.toString().padStart(2, '0')}s`;
     };
 
     return (
@@ -641,7 +668,10 @@ export default function QKViewPage() {
                                 </button>
                                 {isUploading && progressMsg && (
                                     <p className="text-sm text-slate-600 dark:text-slate-400 font-mono">
-                                        {progressMsg}
+                                        <span>{progressMsg}</span>
+                                        <span className="ml-2 text-slate-500 dark:text-slate-500">
+                                            · {formatElapsed(elapsedSec)} elapsed
+                                        </span>
                                     </p>
                                 )}
                             </div>

@@ -484,6 +484,32 @@ _FIELD_FILTER_RE = re.compile(
     re.IGNORECASE,
 )
 
+_FTS_OPERATORS = {"AND", "OR", "NOT", "NEAR"}
+
+
+def _maybe_prefix(tok: str) -> str:
+    """Append `*` for FTS5 prefix matching on bare word tokens.
+
+    Without this, FTS5 only matches whole tokens, so partial typing during
+    interactive search ('pa', 'faile', 'Conf') silently returns nothing while
+    the next keystroke ('pam', 'failed', 'ConfD' that happens to be a real
+    token) suddenly returns thousands of hits. Surfaces as flickering empty
+    results in the UI.
+
+    Skips operators, quoted phrases, grouped expressions, tokens already
+    ending in `*`, and tokens whose final character isn't alphanumeric (so
+    we never produce `pam_*`, which the FTS5 parser rejects).
+    """
+    if not tok or tok.endswith("*"):
+        return tok
+    if tok.upper() in _FTS_OPERATORS:
+        return tok
+    if tok[0] in '"(' or tok[-1] in '")':
+        return tok
+    if not tok[-1].isalnum():
+        return tok
+    return tok + "*"
+
 
 def _parse_log_query(q: str) -> tuple[Optional[str], dict[str, str]]:
     """Translate a Lucene-ish user query into (fts5_match, field_filters).
@@ -493,6 +519,7 @@ def _parse_log_query(q: str) -> tuple[Optional[str], dict[str, str]]:
       - quoted phrases: "user session"
       - FTS5 booleans (AND, OR, NOT) passed through verbatim
       - negation shorthand: -word  →  NOT word
+      - implicit prefix matching on bare word tokens (pam → pam*)
 
     Anything else passes through to FTS5 as-is. Bad syntax surfaces as an
     sqlite error upstream, which the endpoint converts to HTTP 400.
@@ -520,9 +547,9 @@ def _parse_log_query(q: str) -> tuple[Optional[str], dict[str, str]]:
     negatives: list[str] = []
     for tok in tokens:
         if tok.startswith("-") and len(tok) > 1:
-            negatives.append(tok[1:])
+            negatives.append(_maybe_prefix(tok[1:]))
         else:
-            positives.append(tok)
+            positives.append(_maybe_prefix(tok))
 
     if positives and negatives:
         fts = f"({' '.join(positives)}) NOT ({' OR '.join(negatives)})"
@@ -545,6 +572,15 @@ def _open_logs_db(analysis_id: int) -> sqlite3.Connection:
     return conn
 
 
+# Per-analysis sources/chips aggregations are immutable once an analysis
+# completes (the logs DB is written once, then read-only). On VELOS partition
+# archives the chip counts iterate ~800k rows per pattern and take 12+ seconds
+# the first time — cache forever, capped so a long-running worker visiting
+# many analyses doesn't grow unbounded.
+_LOG_SOURCES_CACHE: dict[int, dict] = {}
+_LOG_SOURCES_CACHE_MAX = 64
+
+
 @app.get("/api/qkview/{analysis_id}/logs/sources")
 async def list_log_sources(analysis_id: int):
     """Return per-source log counts plus aggregated counts for the UI chips.
@@ -554,6 +590,10 @@ async def list_log_sources(analysis_id: int):
     chip with count 0 means the log family wasn't present in the archive
     (typically because the module isn't provisioned).
     """
+    cached = _LOG_SOURCES_CACHE.get(analysis_id)
+    if cached is not None:
+        return cached
+
     conn = _open_logs_db(analysis_id)
     try:
         all_sources = {
@@ -572,11 +612,18 @@ async def list_log_sources(analysis_id: int):
             chips[chip_id] = count
     finally:
         conn.close()
-    return {
+
+    payload = {
         "analysis_id": analysis_id,
         "chips": chips,
         "sources": all_sources,
     }
+    if len(_LOG_SOURCES_CACHE) >= _LOG_SOURCES_CACHE_MAX:
+        # Cheap FIFO eviction — drop oldest insertion. Dict iteration order
+        # is insertion order in CPython 3.7+.
+        _LOG_SOURCES_CACHE.pop(next(iter(_LOG_SOURCES_CACHE)))
+    _LOG_SOURCES_CACHE[analysis_id] = payload
+    return payload
 
 
 @app.get("/api/qkview/{analysis_id}/logs")
