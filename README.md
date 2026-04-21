@@ -34,7 +34,9 @@ Upload a `.qkview`, `.tgz`, `.tar.gz`, or `.tar` diagnostic archive and get back
 
 ## Quick start
 
-Clone, install, run both services, open http://localhost:3000.
+Clone, install, run both services, open http://localhost:3001.
+
+Default ports are **3001 / 8001** (webapp / backend) so Local.Qkview coexists with the upstream `f5.assistant` project, which uses 3000 / 8000. Override with `FRONTEND_PORT` / `BACKEND_PORT` env vars before invoking the launcher scripts.
 
 ### Linux / macOS
 
@@ -56,13 +58,13 @@ cd ..
 # Run (two terminals, or use the launcher below)
 # Terminal 1:
 source .venv/bin/activate
-cd backend && uvicorn main:app --host 127.0.0.1 --port 8000
+cd backend && uvicorn main:app --host 127.0.0.1 --port 8001
 
 # Terminal 2:
-cd webapp && npm run start
+cd webapp && PORT=3001 FASTAPI_BACKEND_URL=http://127.0.0.1:8001 npm run start
 ```
 
-Then open http://localhost:3000 and drag a qkview onto the page.
+Then open http://localhost:3001 and drag a qkview onto the page.
 
 ### Windows (PowerShell)
 
@@ -84,11 +86,11 @@ cd ..
 # Terminal 1:
 .\.venv\Scripts\Activate.ps1
 cd backend
-uvicorn main:app --host 127.0.0.1 --port 8000
+uvicorn main:app --host 127.0.0.1 --port 8001
 
 # Terminal 2:
 cd webapp
-npm run start
+$env:PORT = '3001'; $env:FASTAPI_BACKEND_URL = 'http://127.0.0.1:8001'; npm run start
 ```
 
 ### One-shot launchers
@@ -102,14 +104,14 @@ After the one-time install above, use the launcher scripts in `scripts/`:
 
 ```
 local.qkview/
-├── backend/                    FastAPI service, port 8000
+├── backend/                    FastAPI service, port 8001
 │   ├── main.py                 4 routes: /health, /api/analyze, /api/qkview/{id}/apps, .../apps/{path}
 │   ├── qkview_analyzer/        extractor, parser, indexer, rule_engine, reporter, tmos_config, xml_stats
 │   ├── rules/                  YAML rule library (tmos_known_issues, f5os_hardware)
 │   ├── tests/                  pytest suite
 │   ├── requirements.txt        runtime deps (fastapi, uvicorn, lxml, PyYAML, click, rich)
 │   └── requirements-dev.txt    adds pytest
-├── webapp/                     Next.js 16 App Router, port 3000
+├── webapp/                     Next.js 16 App Router, port 3001
 │   ├── app/
 │   │   ├── page.tsx            landing
 │   │   ├── qkview/page.tsx     the analyzer UI
@@ -126,8 +128,8 @@ local.qkview/
 
 Two cooperating processes:
 
-1. **FastAPI backend** (`backend/`, port 8000) unpacks the archive, parses logs, builds an in-memory SQLite FTS5 index, parses TMOS configuration, runs the rule engine, and persists a summary to `backend/local_qkview.db`.
-2. **Next.js frontend** (`webapp/`, port 3000) serves the UI. Two API routes proxy to the backend: `POST /api/analyze` (the archive upload) and `GET /api/qkview/{id}/apps/{path}` (virtual-server drill-down). The frontend does not talk to the backend directly from the browser — the server-side proxy keeps the backend on localhost.
+1. **FastAPI backend** (`backend/`, port 8001) unpacks the archive, parses logs, builds an in-memory SQLite FTS5 index, parses TMOS configuration, runs the rule engine, and persists a summary to `backend/local_qkview.db`.
+2. **Next.js frontend** (`webapp/`, port 3001) serves the UI. Two API routes proxy to the backend: `POST /api/analyze` (the archive upload) and `GET /api/qkview/{id}/apps/{path}` (virtual-server drill-down). The frontend does not talk to the backend directly from the browser — the server-side proxy keeps the backend on localhost.
 
 The analyzer pipeline, in order:
 

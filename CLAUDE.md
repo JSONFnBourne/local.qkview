@@ -25,7 +25,7 @@ Hand-run per component (for dev loops):
 ```bash
 # Backend — Python 3.10+ (tested on 3.12), venv at repo root
 source .venv/bin/activate
-cd backend && uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+cd backend && uvicorn main:app --host 127.0.0.1 --port 8001 --reload
 
 # Frontend — Node 20.9+ (Next.js 16 requirement)
 cd webapp && npm run dev            # HMR
@@ -36,8 +36,10 @@ cd webapp && npm run build && npm run start    # prod mirror
 
 | Component | URL                          | Source                           |
 | --------- | ---------------------------- | -------------------------------- |
-| backend   | http://127.0.0.1:8000        | [backend/](backend/)             |
-| webapp    | http://127.0.0.1:3000        | [webapp/](webapp/)               |
+| backend   | http://127.0.0.1:8001        | [backend/](backend/)             |
+| webapp    | http://127.0.0.1:3001        | [webapp/](webapp/)               |
+
+Defaults are 3001/8001 to coexist with the parent `f5.assistant` systemd services (which bind 3000/8000). Override via `FRONTEND_PORT` / `BACKEND_PORT` env vars before invoking `scripts/run.{sh,ps1}`.
 
 ## Tests and lint
 
@@ -96,7 +98,7 @@ Server-side proxies only — the browser never talks to FastAPI directly. Keeps 
 - `POST /api/analyze` → [webapp/app/api/analyze/route.ts](webapp/app/api/analyze/route.ts) → backend. Raw `application/octet-stream` body, filename in `X-Filename` header (multipart was a 1 MB/s bottleneck; do not reintroduce it).
 - `GET /api/qkview/{id}/apps/{full_path}` → [webapp/app/api/qkview/\[id\]/apps/\[...path\]/route.ts](webapp/app/api/qkview/%5Bid%5D/apps/%5B...path%5D/route.ts) → backend. Serves virtual-server drill-downs from the persisted summary.
 
-`FASTAPI_BACKEND_URL` env var overrides the default `http://127.0.0.1:8000` — useful when running the two processes on different ports during dev.
+`FASTAPI_BACKEND_URL` env var overrides the default `http://127.0.0.1:8001` — useful when running the two processes on different ports during dev. The `scripts/run.sh` launcher wires this automatically from `BACKEND_PORT`.
 
 ### What's deliberately not here (and must stay gone)
 
