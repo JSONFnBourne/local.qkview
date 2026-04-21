@@ -42,6 +42,13 @@ class DeviceMeta:
     # time); for F5OS the root manifest's ts.start is authoritative and is
     # exposed separately on F5OSOverview.
     generation_date: str = ""
+    # Specific F5OS flavor: "rseries" | "velos-partition" | "velos-controller".
+    # Empty on TMOS and on any F5OS archive whose local subpackage signature
+    # doesn't match a known variant. PRODUCT.Platform is insufficient here —
+    # both VELOS syscon and VELOS partition_manager advertise "Platform:
+    # controller", so downstream UI gating (e.g. "does this host tenants?")
+    # must key off subpackage signatures instead.
+    f5os_variant: str = ""
 
 
 @dataclass
@@ -514,6 +521,42 @@ _F5OS_MANAGER_PRIORITY = (
     "appliance_orchestration_manager",
     "partition1_common",
 )
+
+
+_PARTITION_MANAGER_RE = re.compile(r"^partition\d*_manager$")
+
+
+def _detect_f5os_variant(prefixes: list[str]) -> str:
+    """Classify an F5OS archive into ``rseries`` | ``velos-partition`` |
+    ``velos-controller`` by inspecting the *local* top-level subpackage names
+    (peer-qkview.* wrappers are ignored — those are HA peer blade snapshots,
+    not the archive's own identity).
+
+    Priority is chosen so a VELOS partition archive that happens to carry a
+    ``system_manager`` (does not appear to exist in practice, but defensive)
+    still classifies as partition: the presence of a partition manager is
+    more specific than the presence of generic host managers. Returns ``""``
+    when no signature matches.
+    """
+    local_subs: set[str] = set()
+    for prefix in prefixes:
+        if "/peer-qkview." in prefix:
+            continue
+        # Extract the top-level subpackage name: qkview/subpackages/<name>/qkview
+        tail = prefix.split("/subpackages/", 1)
+        if len(tail) != 2:
+            continue
+        name = tail[1].split("/", 1)[0]
+        if name:
+            local_subs.add(name)
+
+    if "vcc-confd" in local_subs:
+        return "velos-controller"
+    if any(_PARTITION_MANAGER_RE.match(s) for s in local_subs):
+        return "velos-partition"
+    if "system_manager" in local_subs or "appliance_orchestration_manager" in local_subs:
+        return "rseries"
+    return ""
 
 
 def _discover_f5os_subpackage_prefixes(
@@ -1260,6 +1303,7 @@ def _extract_f5os(root: Path, progress_callback=None) -> QKViewData:
     # ── 1. Discover all subpackage prefixes (handles VELOS peer-qkview wrappers) ──
     all_prefixes, manifest_cache = _discover_f5os_subpackage_prefixes(root, root_data)
     sys_mgr_prefix, sys_mgr_cmds = _pick_primary_f5os_prefix(root, all_prefixes, manifest_cache)
+    data.meta.f5os_variant = _detect_f5os_variant(all_prefixes)
 
     # Capture every iHealth Quick-Link-style command output across all
     # subpackages so the webapp can render them without re-opening anything.

@@ -299,6 +299,7 @@ class Reporter:
                 "memory_mb": meta.memory_mb,
                 "base_mac": meta.base_mac,
                 "generation_date": meta.generation_date,
+                "f5os_variant": meta.f5os_variant,
             },
             "findings": [f.to_dict() for f in findings],
             "entries": entries,

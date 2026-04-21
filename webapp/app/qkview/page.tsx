@@ -389,6 +389,13 @@ export default function QKViewPage() {
 
     const rawProduct: string = analysisResult?.device_info?.product || '';
     const isF5OS = rawProduct.startsWith('F5OS');
+    const platformFlavor: string = (analysisResult?.device_info?.platform || '').toLowerCase();
+    const f5osVariant: string = analysisResult?.device_info?.f5os_variant || '';
+    // VELOS syscon (chassis controller) hosts no tenants; VELOS partition and
+    // rSeries both do. PRODUCT.Platform reports "controller" for both VELOS
+    // flavors, so we use the backend-computed variant (keyed off subpackage
+    // signatures) instead of the platform string.
+    const isController = isF5OS && f5osVariant === 'velos-controller';
     const f5osCommands: Record<string, string> = analysisResult?.f5os_commands || {};
     const f5osHealth: F5OSHealth[] = analysisResult?.f5os_health || [];
     const f5osOverview: F5OSOverview | null = analysisResult?.f5os_overview || null;
@@ -578,6 +585,9 @@ export default function QKViewPage() {
             setSelectedAppPath(null);
             setAppDetails(null);
             setAppDetailsError(null);
+            setActivePartition(null);
+            setActiveCmd(null);
+            setShowRawStanzas(false);
         } catch (err: any) {
             setError(err.message || 'An error occurred during analysis.');
         } finally {
@@ -846,11 +856,12 @@ export default function QKViewPage() {
                         </div>
                     </div>
 
-                    {/* F5OS Configuration Totals (portgroup modes, tenant counts, appliance-mode) */}
+                    {/* F5OS Configuration Totals (portgroup modes, tenant counts / cluster nodes, appliance-mode) */}
                     {isF5OS && f5osOverview && (
                         <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
                             <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
-                                <Settings className="w-5 h-5 text-amber-500" /> Configuration Totals
+                                <Settings className="w-5 h-5 text-amber-500" />
+                                {isController ? 'Controller Summary' : 'Configuration Totals'}
                             </h3>
                             <div className="grid md:grid-cols-3 gap-6 text-sm">
                                 <div className="space-y-3">
@@ -860,18 +871,65 @@ export default function QKViewPage() {
                                             {f5osOverview.appliance_mode || '—'}
                                         </p>
                                     </div>
-                                    <div>
-                                        <p className="text-xs uppercase tracking-wider text-slate-500 mb-1">Tenant Counts</p>
-                                        <ul className="font-mono text-xs space-y-0.5">
-                                            <li className="flex justify-between gap-4"><span className="text-slate-500">Configured</span><span className="text-slate-800 dark:text-slate-200 tabular-nums">{f5osOverview.tenants_configured}</span></li>
-                                            <li className="flex justify-between gap-4"><span className="text-slate-500">Provisioned</span><span className="text-slate-800 dark:text-slate-200 tabular-nums">{f5osOverview.tenants_provisioned}</span></li>
-                                            <li className="flex justify-between gap-4"><span className="text-slate-500">Deployed</span><span className="text-slate-800 dark:text-slate-200 tabular-nums">{f5osOverview.tenants_deployed}</span></li>
-                                            <li className="flex justify-between gap-4"><span className="text-slate-500">Running</span><span className="text-slate-800 dark:text-slate-200 tabular-nums font-semibold">{f5osOverview.tenants_running}</span></li>
-                                        </ul>
-                                    </div>
+                                    {isController ? (
+                                        <>
+                                            {(f5osOverview.platform_pid || f5osOverview.platform_code) && (
+                                                <div>
+                                                    <p className="text-xs uppercase tracking-wider text-slate-500 mb-1">Chassis</p>
+                                                    <ul className="font-mono text-xs space-y-0.5">
+                                                        {f5osOverview.platform_pid && (
+                                                            <li className="flex justify-between gap-4"><span className="text-slate-500">PID</span><span className="text-slate-800 dark:text-slate-200">{f5osOverview.platform_pid}</span></li>
+                                                        )}
+                                                        {f5osOverview.platform_code && (
+                                                            <li className="flex justify-between gap-4"><span className="text-slate-500">Code</span><span className="text-slate-800 dark:text-slate-200">{f5osOverview.platform_code}</span></li>
+                                                        )}
+                                                        {f5osOverview.platform_part_number && (
+                                                            <li className="flex justify-between gap-4"><span className="text-slate-500">Part #</span><span className="text-slate-800 dark:text-slate-200">{f5osOverview.platform_part_number}</span></li>
+                                                        )}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <div>
+                                            <p className="text-xs uppercase tracking-wider text-slate-500 mb-1">Tenant Counts</p>
+                                            <ul className="font-mono text-xs space-y-0.5">
+                                                <li className="flex justify-between gap-4"><span className="text-slate-500">Configured</span><span className="text-slate-800 dark:text-slate-200 tabular-nums">{f5osOverview.tenants_configured}</span></li>
+                                                <li className="flex justify-between gap-4"><span className="text-slate-500">Provisioned</span><span className="text-slate-800 dark:text-slate-200 tabular-nums">{f5osOverview.tenants_provisioned}</span></li>
+                                                <li className="flex justify-between gap-4"><span className="text-slate-500">Deployed</span><span className="text-slate-800 dark:text-slate-200 tabular-nums">{f5osOverview.tenants_deployed}</span></li>
+                                                <li className="flex justify-between gap-4"><span className="text-slate-500">Running</span><span className="text-slate-800 dark:text-slate-200 tabular-nums font-semibold">{f5osOverview.tenants_running}</span></li>
+                                            </ul>
+                                        </div>
+                                    )}
                                 </div>
 
-                                {f5osOverview.portgroups.length > 0 && (
+                                {isController && f5osOverview.cluster_nodes.length > 0 ? (
+                                    <div className="md:col-span-2">
+                                        <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Cluster Nodes</p>
+                                        <table className="w-full text-xs">
+                                            <thead className="text-slate-500 uppercase">
+                                                <tr>
+                                                    <th className="text-left py-1 pr-3">Name</th>
+                                                    <th className="text-left py-1 pr-3">Slot</th>
+                                                    <th className="text-left py-1 pr-3">State</th>
+                                                    <th className="text-left py-1 pr-3">Ready</th>
+                                                    <th className="text-left py-1">Message</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                                {f5osOverview.cluster_nodes.map((n) => (
+                                                    <tr key={n.name}>
+                                                        <td className="py-1 pr-3 font-mono text-slate-800 dark:text-slate-200">{n.name}</td>
+                                                        <td className="py-1 pr-3 font-mono text-slate-700 dark:text-slate-300">{n.slot || '—'}</td>
+                                                        <td className="py-1 pr-3 font-mono text-slate-700 dark:text-slate-300">{n.running_state || '—'}</td>
+                                                        <td className={`py-1 pr-3 font-mono ${n.ready ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{n.ready ? 'yes' : 'no'}</td>
+                                                        <td className="py-1 text-slate-600 dark:text-slate-400">{n.ready_message || '—'}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : f5osOverview.portgroups.length > 0 ? (
                                     <div className="md:col-span-2">
                                         <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Portgroup Modes in Use</p>
                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs">
@@ -885,10 +943,10 @@ export default function QKViewPage() {
                                             ))}
                                         </div>
                                     </div>
-                                )}
+                                ) : null}
                             </div>
 
-                            {f5osOverview.tenants.length > 0 && (
+                            {!isController && f5osOverview.tenants.length > 0 && (
                                 <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
                                     <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Tenants</p>
                                     <table className="w-full text-xs">
@@ -981,6 +1039,17 @@ export default function QKViewPage() {
                         </div>
                     )}
 
+                    {/* F5OS: explain why there is no VS / Pool panel */}
+                    {isF5OS && !isController && f5osOverview && f5osOverview.tenants.length > 0 && (
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-400 flex items-start gap-3">
+                            <Folder className="w-4 h-4 mt-0.5 text-slate-500 shrink-0" />
+                            <div>
+                                <span className="font-semibold text-slate-700 dark:text-slate-300">Tenant BIG-IP configurations are not included in this host-level qkview.</span>
+                                {' '}F5OS captures the host control-plane only — virtual servers, pools, iRules, and profiles live inside each tenant. To analyze a specific tenant, generate a qkview from within the tenant (via the tenant&apos;s TMOS CLI) and upload it here.
+                            </div>
+                        </div>
+                    )}
+
                     {/* Apps Browser (TMOS only) */}
                     {!isF5OS && apps.length > 0 && (
                         <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
@@ -995,8 +1064,8 @@ export default function QKViewPage() {
                                     {partitions.map((p) => (
                                         <button
                                             key={p}
-                                            onClick={() => setActivePartition(p)}
-                                            className={`px-3 py-1 rounded text-xs font-medium ${p === effectivePartition ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}
+                                            onClick={() => setActivePartition(p === activePartition ? null : p)}
+                                            className={`px-3 py-1 rounded text-xs font-medium ${p === activePartition ? 'bg-amber-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'}`}
                                         >
                                             {p}
                                         </button>
@@ -1004,9 +1073,19 @@ export default function QKViewPage() {
                                 </div>
                             )}
                             {(() => {
-                                const displayedApps = effectivePartition
-                                    ? (appsByPartition[effectivePartition] || [])
-                                    : apps;
+                                // User's explicit click wins, even if the bucket is empty.
+                                // Without a click, prefer the first-partition view but fall
+                                // back to the full `apps` list when that bucket is empty —
+                                // fixes the "Configured VS (N) but empty rows" bug that hit
+                                // when `partitions[]` from the backend doesn't key 1-to-1
+                                // into `appsByPartition` (observed on some TMOS archives
+                                // whose apps carry a differently-cased or missing
+                                // partition field).
+                                const displayedApps = activePartition
+                                    ? (appsByPartition[activePartition] || [])
+                                    : (partitions[0] && appsByPartition[partitions[0]]?.length
+                                        ? appsByPartition[partitions[0]]
+                                        : apps);
                                 const scrollable = displayedApps.length > 50;
                                 return (
                             <div className={`overflow-x-auto ${scrollable ? 'max-h-[600px] overflow-y-auto' : ''}`}>
