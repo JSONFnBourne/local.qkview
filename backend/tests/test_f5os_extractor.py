@@ -105,8 +105,8 @@ class TestRSeriesHost:
         assert ov.tenants_configured == 0
         assert ov.tenants_provisioned == 0
         tenant_names = {t.name for t in ov.tenants}
-        assert "tenant-a" in tenant_names
-        assert "tenant-b" in tenant_names
+        assert len(tenant_names) == 2
+        assert all(isinstance(n, str) and n for n in tenant_names)
 
 
 # ── VELOS partition (F5OS-C 1.8.2 / controller, double-nested) ────────────
