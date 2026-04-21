@@ -1,14 +1,17 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import asyncio
 import ctypes
 import ctypes.util
 import gc
+import re
+import shlex
 import sqlite3
 import os
 import tempfile
 import threading
+import time
 import json
 import logging
 from typing import Optional
@@ -74,17 +77,38 @@ from qkview_analyzer.tmos_config import (
 
 app = FastAPI(title="Local.Qkview Backend API", version="0.1.0")
 
-_ALLOWED_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
+_ALLOWED_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3001")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[_ALLOWED_ORIGIN],
     allow_credentials=False,
-    allow_methods=["POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-Filename"],
 )
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "local_qkview.db")
+LOGS_DB_DIR = os.path.join(os.path.dirname(__file__), "logs_db")
+os.makedirs(LOGS_DB_DIR, exist_ok=True)
+
+
+def _logs_db_path(analysis_id: int) -> str:
+    return os.path.join(LOGS_DB_DIR, f"logs_{analysis_id}.db")
+
+
+# Chip name -> list of source_file matching strategies. Each entry is a SQL LIKE
+# pattern. Covers the common F5 log naming variants:
+#   ltm, ltm.1, ltm.2_transformed      (TMOS, root)
+#   host/ltm, velos-partition-*/ltm    (F5OS, path-prefixed)
+# Keep the keys stable — they become the chip `source=` API parameter.
+LOG_CHIP_SOURCES: dict[str, list[str]] = {
+    "ltm":       ["ltm", "ltm.%", "%/ltm", "%/ltm.%"],
+    "tmm":       ["tmm", "tmm.%", "%/tmm", "%/tmm.%"],
+    "gtm":       ["gtm", "gtm.%", "%/gtm", "%/gtm.%"],
+    "apm":       ["apm", "apm.%", "%/apm", "%/apm.%"],
+    "asm":       ["asm", "asm.%", "%/asm", "%/asm.%"],
+    "restjavad": ["restjavad.%.log", "%/restjavad.%.log"],
+}
 
 def init_db():
     """Initialize the SQLite database with required schemas."""
@@ -180,6 +204,13 @@ async def analyze_qkview(request: Request):
 
     def worker() -> None:
         indexer: Optional[LogIndexer] = None
+        # Persist the log index to disk so the UI can search it after the
+        # analyze stream closes. Built at a temp path first because we don't
+        # know the analysis_id until the summary row is INSERTed.
+        pending_logs_db = os.path.join(
+            LOGS_DB_DIR, f".tmp_logs_{os.getpid()}_{int(time.time()*1000)}.db"
+        )
+        final_logs_db: Optional[str] = None
         try:
             progress("Extracting archive…")
             data = extract_qkview(temp_path, progress_callback=progress)
@@ -198,7 +229,7 @@ async def analyze_qkview(request: Request):
                 entries.sort(key=lambda e: e.timestamp)
 
             progress(f"Indexing {len(entries)} log entries…")
-            indexer = LogIndexer()
+            indexer = LogIndexer(db_path=pending_logs_db)
             indexer.bulk_insert(entries, progress_callback=progress)
             # `entries` is duplicated into the SQLite index; drop our copy now
             # so gc can reclaim it before the Reporter/json stage allocates.
@@ -298,6 +329,21 @@ async def analyze_qkview(request: Request):
             finally:
                 conn.close()
 
+            # Close the indexer's SQLite handle before renaming (Windows holds
+            # file locks until the connection is closed).
+            try:
+                indexer.close()
+            except Exception:
+                pass
+            indexer = None
+
+            final_logs_db = _logs_db_path(analysis_id)
+            try:
+                os.replace(pending_logs_db, final_logs_db)
+            except OSError:
+                logger.exception("Failed to persist log index for analysis %s", analysis_id)
+                final_logs_db = None
+
             # Trim the streamed payload so the browser doesn't freeze parsing
             # and rendering megabytes it will never show. SQLite keeps the full
             # summary (including tmos_config) for the /apps detail endpoints.
@@ -347,13 +393,18 @@ async def analyze_qkview(request: Request):
                 "detail": "Analysis failed. Check server logs for details.",
             })
         finally:
-            # Close the :memory: SQLite even on error paths — otherwise a
-            # failed analyze leaves the entire indexed log set resident
-            # until the worker thread's frame is GC'd.
+            # Close the SQLite handle even on error paths so the worker's
+            # allocation of the indexed log set can be reclaimed.
             if indexer is not None:
                 try:
                     indexer.close()
                 except Exception:
+                    pass
+            # Drop the pending temp file if rename didn't happen (failure path).
+            if final_logs_db is None and os.path.exists(pending_logs_db):
+                try:
+                    os.remove(pending_logs_db)
+                except OSError:
                     pass
             if temp_path and os.path.exists(temp_path):
                 try:
@@ -424,7 +475,218 @@ async def qkview_app_details(analysis_id: int, full_path: str):
     return {"analysis_id": analysis_id, "app": details}
 
 
+# ---------------------------------------------------------------------------
+# Log search (interactive, served from the persisted per-analysis FTS5 index)
+# ---------------------------------------------------------------------------
+
+_FIELD_FILTER_RE = re.compile(
+    r'\b(log|severity|process)\s*:\s*("([^"]+)"|([^\s]+))',
+    re.IGNORECASE,
+)
+
+
+def _parse_log_query(q: str) -> tuple[Optional[str], dict[str, str]]:
+    """Translate a Lucene-ish user query into (fts5_match, field_filters).
+
+    Supports:
+      - field filters: log:<name>, severity:<level>, process:<name>
+      - quoted phrases: "user session"
+      - FTS5 booleans (AND, OR, NOT) passed through verbatim
+      - negation shorthand: -word  →  NOT word
+
+    Anything else passes through to FTS5 as-is. Bad syntax surfaces as an
+    sqlite error upstream, which the endpoint converts to HTTP 400.
+    """
+    if not q or not q.strip():
+        return None, {}
+
+    filters: dict[str, str] = {}
+    def _capture(m: re.Match) -> str:
+        key = m.group(1).lower()
+        val = m.group(3) if m.group(3) is not None else m.group(4)
+        filters[key] = val
+        return ""
+    stripped = _FIELD_FILTER_RE.sub(_capture, q).strip()
+
+    if not stripped:
+        return None, filters
+
+    try:
+        tokens = shlex.split(stripped, posix=False)
+    except ValueError:
+        return stripped, filters
+
+    positives: list[str] = []
+    negatives: list[str] = []
+    for tok in tokens:
+        if tok.startswith("-") and len(tok) > 1:
+            negatives.append(tok[1:])
+        else:
+            positives.append(tok)
+
+    if positives and negatives:
+        fts = f"({' '.join(positives)}) NOT ({' OR '.join(negatives)})"
+    elif positives:
+        fts = " ".join(positives)
+    elif negatives:
+        # FTS5 won't accept standalone negation — drop it and rely on filters.
+        fts = None
+    else:
+        fts = None
+    return fts, filters
+
+
+def _open_logs_db(analysis_id: int) -> sqlite3.Connection:
+    path = _logs_db_path(analysis_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Log index not found for this analysis")
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+@app.get("/api/qkview/{analysis_id}/logs/sources")
+async def list_log_sources(analysis_id: int):
+    """Return per-source log counts plus aggregated counts for the UI chips.
+
+    `chips` maps a stable chip id (ltm / tmm / gtm / apm / asm / restjavad) to
+    its total entry count across all rotated variants and path prefixes. A
+    chip with count 0 means the log family wasn't present in the archive
+    (typically because the module isn't provisioned).
+    """
+    conn = _open_logs_db(analysis_id)
+    try:
+        all_sources = {
+            row["source_file"]: row["cnt"]
+            for row in conn.execute(
+                "SELECT source_file, COUNT(*) as cnt FROM logs "
+                "GROUP BY source_file ORDER BY cnt DESC"
+            )
+        }
+        chips = {}
+        for chip_id, patterns in LOG_CHIP_SOURCES.items():
+            where = " OR ".join(["source_file LIKE ?"] * len(patterns))
+            count = conn.execute(
+                f"SELECT COUNT(*) FROM logs WHERE {where}", patterns
+            ).fetchone()[0]
+            chips[chip_id] = count
+    finally:
+        conn.close()
+    return {
+        "analysis_id": analysis_id,
+        "chips": chips,
+        "sources": all_sources,
+    }
+
+
+@app.get("/api/qkview/{analysis_id}/logs")
+async def search_logs(
+    analysis_id: int,
+    q: Optional[str] = Query(None, description="Search query (phrases, AND/OR/NOT, -word, log:/severity:/process:)"),
+    source: Optional[str] = Query(None, description="Chip id (ltm, tmm, gtm, apm, asm, restjavad)"),
+    severity: Optional[str] = Query(None, description="Minimum syslog severity (emerg..debug)"),
+    process: Optional[str] = Query(None, description="Exact process name"),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+):
+    """Query the persisted FTS5 log index for this analysis."""
+    fts_match, parsed_filters = _parse_log_query(q or "")
+
+    # Field filters from the query string override query-parsed filters only
+    # when the query-string side wasn't set.
+    src_chip = source or parsed_filters.get("log")
+    sev = severity or parsed_filters.get("severity")
+    proc = process or parsed_filters.get("process")
+
+    conditions: list[str] = []
+    params: list = []
+
+    if sev:
+        from qkview_analyzer.parser import SEVERITY_LEVELS
+        sev_num = SEVERITY_LEVELS.get(sev.lower())
+        if sev_num is None:
+            raise HTTPException(status_code=400, detail=f"Unknown severity: {sev}")
+        conditions.append("severity_num <= ?")
+        params.append(sev_num)
+    if proc:
+        conditions.append("process = ?")
+        params.append(proc)
+    if src_chip:
+        patterns = LOG_CHIP_SOURCES.get(src_chip.lower())
+        if patterns is None:
+            # Not a known chip — treat as an exact source_file name.
+            conditions.append("source_file = ?")
+            params.append(src_chip)
+        else:
+            or_clause = " OR ".join(["source_file LIKE ?"] * len(patterns))
+            conditions.append(f"({or_clause})")
+            params.extend(patterns)
+
+    where = " AND ".join(conditions) if conditions else "1=1"
+
+    if fts_match:
+        sql = (
+            "SELECT logs.timestamp, logs.hostname, logs.severity, logs.severity_num, "
+            "       logs.process, logs.pid, logs.msg_code, logs.source_file, "
+            "       logs.line_number, logs.raw_line "
+            "FROM logs JOIN logs_fts ON logs.id = logs_fts.rowid "
+            f"WHERE logs_fts MATCH ? AND {where} "
+            "ORDER BY logs.timestamp_epoch ASC LIMIT ? OFFSET ?"
+        )
+        query_params = [fts_match, *params, limit, offset]
+        count_sql = (
+            "SELECT COUNT(*) FROM logs JOIN logs_fts ON logs.id = logs_fts.rowid "
+            f"WHERE logs_fts MATCH ? AND {where}"
+        )
+        count_params = [fts_match, *params]
+    else:
+        sql = (
+            "SELECT timestamp, hostname, severity, severity_num, process, pid, "
+            "       msg_code, source_file, line_number, raw_line "
+            f"FROM logs WHERE {where} "
+            "ORDER BY timestamp_epoch ASC LIMIT ? OFFSET ?"
+        )
+        query_params = [*params, limit, offset]
+        count_sql = f"SELECT COUNT(*) FROM logs WHERE {where}"
+        count_params = list(params)
+
+    conn = _open_logs_db(analysis_id)
+    try:
+        try:
+            rows = [dict(r) for r in conn.execute(sql, query_params).fetchall()]
+            total = conn.execute(count_sql, count_params).fetchone()[0]
+        except sqlite3.OperationalError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid search query: {exc}")
+    finally:
+        conn.close()
+
+    # Cap raw_line the same way /api/analyze does to keep the UI responsive
+    # on pathological single-line entries.
+    MAX_MESSAGE_BYTES = 2048
+    for r in rows:
+        raw = r.get("raw_line")
+        if isinstance(raw, str) and len(raw) > MAX_MESSAGE_BYTES:
+            r["raw_line"] = (
+                raw[:MAX_MESSAGE_BYTES]
+                + f"\n…[truncated, {len(raw) - MAX_MESSAGE_BYTES} more bytes]"
+            )
+
+    return {
+        "analysis_id": analysis_id,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "entries": rows,
+        "filters": {
+            "q": q,
+            "source": src_chip,
+            "severity": sev,
+            "process": proc,
+        },
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
-    # Start the application on port 8000
-    uvicorn.run("main:app", host="127.0.0.1", port=8000)
+    port = int(os.environ.get("BACKEND_PORT", "8001"))
+    uvicorn.run("main:app", host="127.0.0.1", port=port)

@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useMemo } from 'react';
 import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings } from 'lucide-react';
+import LogsSearchTile from '../components/LogsSearchTile';
 
 type AppSummary = {
     name: string;
@@ -856,6 +857,12 @@ export default function QKViewPage() {
                         </div>
                     </div>
 
+                    <LogsSearchTile
+                        analysisId={analysisId}
+                        staticEntries={analysisResult.entries || []}
+                        entryCount={analysisResult.entry_count || 0}
+                    />
+
                     {/* F5OS Configuration Totals (portgroup modes, tenant counts / cluster nodes, appliance-mode) */}
                     {isF5OS && f5osOverview && (
                         <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
@@ -1441,43 +1448,6 @@ export default function QKViewPage() {
                         </div>
                     )}
 
-                    {/* Terminal Window for Raw Logs */}
-                    <div className="p-6 bg-white dark:bg-slate-900 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-slate-800 pb-4">
-                            <h3 className="font-semibold text-lg text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                                <div className="flex gap-1.5 mr-2">
-                                    <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                                    <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                                    <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                                </div>
-                                Extracted Critical/Warning Logs ({analysisResult.entry_count || 0})
-                            </h3>
-                        </div>
-                        <div className="bg-black rounded border border-slate-800 p-4 h-96 overflow-y-auto font-mono text-sm">
-                            {analysisResult.entries && analysisResult.entries.length > 0 ? (
-                                <ul className="space-y-1">
-                                    {analysisResult.entries.slice(0, 150).map((entry: any, i: number) => {
-                                        const sevColor = entry.severity === 'err' || entry.severity === 'critical' ? 'text-red-400'
-                                            : entry.severity === 'warning' ? 'text-amber-400'
-                                                : entry.severity === 'notice' ? 'text-blue-400'
-                                                    : 'text-slate-300';
-                                        return (
-                                            <li key={i} className={`whitespace-pre-wrap leading-relaxed border-b border-slate-800/50 pb-1 ${sevColor}`}>
-                                                <span className="text-slate-500 mr-2">{entry.timestamp}</span>
-                                                <span className="opacity-75 mr-2">[{entry.process}]</span>
-                                                {entry.raw_line}
-                                            </li>
-                                        );
-                                    })}
-                                    {analysisResult.entries.length > 150 && (
-                                        <li className="text-slate-500 pt-2 italic">... {analysisResult.entries.length - 150} more entries truncated from view ...</li>
-                                    )}
-                                </ul>
-                            ) : (
-                                <p className="text-slate-500 italic">No significant warning/error logs found in archive.</p>
-                            )}
-                        </div>
-                    </div>
                 </div>
             )}
         </div>

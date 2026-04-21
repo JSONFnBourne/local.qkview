@@ -23,15 +23,25 @@ out/
 next-env.d.ts.bak
 *.tsbuildinfo
 
-# Runtime data
+# Runtime data — real customer QKView archives, DBs, local test inputs
+# Never push any of this: archives carry customer IPs, cert CNs, hostnames, pool members.
 backend/local_qkview.db
 backend/local_qkview.db-journal
 backend/local_qkview.db-wal
 backend/local_qkview.db-shm
+backend/logs_db/
 uploads/
 *.qkview
 *.tgz
 *.tar.gz
+*.tar
+/qkview/
+
+# Local debug captures — may contain cookies, auth headers, customer URLs
+*.har
+localhost_*.png
+screenshot*.png
+screenshot*.jpg
 
 # OS / editor
 .DS_Store

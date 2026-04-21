@@ -4,6 +4,7 @@ Follow-ups for Local.Qkview. Closed items get `[x]` with a `(Session N)` marker.
 
 ## High
 
+- [ ] (Session 4) Browser-smoke the new log search tile on a real upload — `./scripts/run.sh` → upload `qkview/tmos_ve.qkview` → exercise chips / severity dropdown / help popover / a handful of queries (`"user session"`, `mcpd -cron`, `log:ltm severity:err`). Session 4 verified via curl + `npm run build`; visual correctness not yet confirmed.
 - [ ] (Session 3) **User direction needed on 3001 ↔ 3000 reconciliation.** Bidirectional diff of fork vs parent shows the fork is strictly a superset on `page.tsx` (98 fork-only lines, 0 parent-only features). Options: (A) remove fork enhancements to match parent — undoes commit `96b597d` + related; (B) keep fork extras and pull in any parent-only feature — nothing to pull in today; (C) chase a runtime browser-side difference. No reconciliation edits until user picks a direction. See [SESSION_STATE.md](SESSION_STATE.md) Session 3 "Unresolved".
 - [ ] (Session 3) Relax the `cluster_nodes` render gate so VELOS partition blade inventory (8 blades on `partition.tar`) and rSeries single-node info render for non-controller F5OS. Change `isController && f5osOverview.cluster_nodes.length > 0` → `f5osOverview.cluster_nodes.length > 0` at [webapp/app/qkview/page.tsx:906](webapp/app/qkview/page.tsx#L906). **Contingent on the (A)/(B)/(C) decision above** — under (A) this section is deleted instead.
 - [ ] (Session 1) Pre-push scrub for public origin — run `git diff origin/main..HEAD` per [CLAUDE.md](CLAUDE.md) "Secrets, credentials, and PII" before the first push to `git@github.com:JSONFnBourne/local.qkview.git`.
@@ -12,6 +13,8 @@ Follow-ups for Local.Qkview. Closed items get `[x]` with a `(Session N)` marker.
 
 ## Medium
 
+- [ ] (Session 4) Add a retention / orphan-cleanup pass for `backend/logs_db/`. Each analysis leaves a persistent `.db` file (40–125 MB typical); `analyses` rows can be deleted without touching the matching logs file, and vice versa. Minimum-viable: a startup sweep that removes `logs_*.db` with no matching `analyses.id`. Better: a per-row delete action in the UI.
+- [ ] (Session 4) Harden `_parse_log_query` so negation-only inputs (`-foo`) return HTTP 400 with a user-facing explanation, rather than silently dropping the negation and matching everything. [backend/main.py:419-453](backend/main.py#L419-L453)
 - [ ] (Session 3) Decide whether `.run_one.sh` / `.run_one_parent.sh` session-research runner scripts (currently untracked in the repo root) should be promoted to `scripts/` as reusable archive-sweep helpers or simply deleted. They drive the fork and parent backends with the seven sample archives and dump result JSONs to `/tmp/`.
 - [ ] (Session 1) Audit [v1_localhost.har](v1_localhost.har), [v2_localhost.har](v2_localhost.har), [v3_localhost.har](v3_localhost.har) for embedded customer PII the same way [v4_localhost.har](v4_localhost.har) was reviewed — confirm all are local-only.
 - [ ] (Session 1) Build a HAR scrub helper that rewrites customer hostnames/IPs (e.g. `*.example.com`, `203.0.113.*`, `192.168.253.*`, `customer-dns*`, `device-*`) to RFC5737 + synthetic names so a sanitized capture can live in-tree for CI/benchmarking.
@@ -26,6 +29,12 @@ Follow-ups for Local.Qkview. Closed items get `[x]` with a `(Session N)` marker.
 
 ## Closed this session
 
+- [x] (Session 4) Persist `LogIndexer` to disk per analysis at `backend/logs_db/logs_<id>.db` — enables interactive search after the analyze stream closes. [backend/main.py:86-107](backend/main.py#L86-L107), [backend/main.py:329-346](backend/main.py#L329-L346)
+- [x] (Session 4) Add `GET /api/qkview/{id}/logs/sources` — aggregated chip counts per log family plus full source_file breakdown. [backend/main.py:455-483](backend/main.py#L455-L483)
+- [x] (Session 4) Add `GET /api/qkview/{id}/logs` — FTS5-backed search with a Lucene-subset parser (phrases, AND/OR/NOT, `-word`, prefix `*`, `log:`/`severity:`/`process:` field filters). [backend/main.py:419-453](backend/main.py#L419-L453), [backend/main.py:486-575](backend/main.py#L486-L575)
+- [x] (Session 4) Next.js proxies for `/logs` and `/logs/sources` mirroring the existing `/apps` pattern.
+- [x] (Session 4) Relocate "Extracted Critical/Warning Logs" tile directly under the System Status + Known Issues grid; build new `LogsSearchTile` with search input, help popover, chips (dimmed when empty), severity dropdown, debounced search. [webapp/app/components/LogsSearchTile.tsx](webapp/app/components/LogsSearchTile.tsx), [webapp/app/qkview/page.tsx:858-865](webapp/app/qkview/page.tsx#L858-L865)
+- [x] (Session 4) Add `backend/logs_db/` to `.gitignore` (per-analysis log files hold real customer log lines / hostnames / F5 message codes — never push).
 - [x] (Session 3) Audit each of the seven sample archives end-to-end against the fork (3001 / 8001) — per-archive render-fitness report in [SESSION_STATE.md](SESSION_STATE.md) Session 3.
 - [x] (Session 3) Run the seven archives against the parent (3000 / 8000) and diff payload + UI vs fork — fork is strictly a superset; no parent-only features on `page.tsx` to port across.
 
