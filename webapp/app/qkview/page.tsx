@@ -601,7 +601,7 @@ export default function QKViewPage() {
         <div className="py-8 space-y-8 max-w-5xl mx-auto">
             <div className="space-y-4">
                 <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50">
-                    QKView Log Analyzer
+                    QKView Analyzer
                 </h1>
                 <p className="text-slate-600 dark:text-slate-400">
                     Drag and drop an F5 TMOS (.qkview) or F5OS (.tgz / .tar) diagnostic archive to parse logs, index configurations, and scan for known issues.

@@ -19,7 +19,7 @@ export default function Home() {
                         <div className="p-3 rounded-lg bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400">
                             <FileSearch className="h-6 w-6" />
                         </div>
-                        <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100">QKView Log Analyzer</h3>
+                        <h3 className="text-xl font-semibold text-slate-900 dark:text-slate-100">QKView Analyzer</h3>
                     </div>
                     <p className="text-slate-600 dark:text-slate-400 mb-6">
                         Upload a QKView archive to unpack logs, parse device configuration, match known-issue patterns from a YAML rule library, and drill into virtual servers, pools, profiles, and iRules.

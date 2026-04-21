@@ -2,7 +2,61 @@
 
 Running log of Claude Code sessions in this repo. Each session has three buckets: completed work, unresolved issues, next steps. Most recent session at the top.
 
-Last updated: 2026-04-21 (Session 4)
+Last updated: 2026-04-21 (Session 5)
+
+---
+
+## Session 5 — 2026-04-21
+
+Focus: user-reported failure of the Session 4 log-search tile smoke-test ("did not render, see screenshot") plus the Session 3 reconciliation decision that was blocking edits. Turned into a longer arc — the render failure wasn't the tile, it was the entire webapp serving a stale build manifest. Fixed that, surfaced the (B)/(C) question with a clarification that 3001 and 3000 are intentionally distinct product surfaces, shipped the cluster_nodes follow-through, committed the Session 1–4 carryover backlog, ran a pre-push PII scrub that caught real leaks, first meaningful push to the public origin, then a second failure trail (chip counts `(0)`, search returns "Not Found") resolved as a stale backend running pre-Session-4 code.
+
+### Completed
+
+| Area | Change | Files / Evidence |
+|---|---|---|
+| Stale next-server 3001 → unstyled page | Running next-server at PID 193858 held an in-memory manifest referencing `/_next/static/chunks/135es0s7kqs4l.css` (BUILD_ID `obRDASwbZO75GUBrdaR9J`) but the disk had `0hlxc~kgbrba..css` from BUILD_ID `ZZrOVUxwjipO3rRU-PsZB`. Every CSS request 500'd → all Tailwind classes rendered as naked HTML. Killed and restarted → disk BUILD_ID matched server, CSS served 200 (27 KB). | — |
+| Session 3 reconciliation — **Option (B) chosen** | User clarified that 3001 (fork) and 3000 (parent) are intentionally distinct product surfaces, not drift to reconcile. Keeps fork's Controller Summary, cluster_nodes table, tenant banner, partition click-toggle, state reset. Honors the standing `feedback_never_touch_parent.md` memory. | — |
+| `cluster_nodes` render-gate relaxation | One-line edit: `isController && f5osOverview.cluster_nodes.length > 0` → `f5osOverview.cluster_nodes.length > 0`. Now lights up the per-blade table for VELOS partition (8 blades on `partition.tar`) and rSeries (1 node on `rSeries.tar`) — previously hidden behind the controller-only half of the guard. | [webapp/app/qkview/page.tsx:913](webapp/app/qkview/page.tsx#L913) |
+| **PII scrub — three real leaks caught** | Pre-push `git diff origin/main..HEAD` + source-wide regex swept for the customer patterns flagged in the local (gitignored) scrub-helper note. Three hits: (1) a docstring example in `extractor.py` carrying a real customer hostname + base-MAC — already public in initial commit, sanitized going forward to a synthetic RFC-style example; (2) exact tenant-name equality assertions in the rSeries integration test — replaced with cardinality + non-empty shape assertions so the test still regresses without recording customer tenant IDs; (3) Session 1 TODO line that enumerated the scrub patterns verbatim — rewrote generically, kept the real-pattern list in a local gitignored note. | [backend/qkview_analyzer/extractor.py:783-789](backend/qkview_analyzer/extractor.py#L783-L789), [backend/tests/test_f5os_extractor.py:107-109](backend/tests/test_f5os_extractor.py#L107-L109), [TODO.md](TODO.md) |
+| Port default alignment on 3001 / 8001 | The seven Session-1-carryover M files all pointed one direction: the fork should default to 3001 / 8001 so it coexists with the parent `f5.assistant` (3000 / 8000). Committed as one coherent unit — CLAUDE.md, README.md, scripts/run.{sh,ps1}, both Next.js proxy route defaults. Launchers honor `FRONTEND_PORT` / `BACKEND_PORT` env overrides and wire `FRONTEND_ORIGIN` / `FASTAPI_BACKEND_URL` to the child processes. | [scripts/run.sh](scripts/run.sh), [scripts/run.ps1](scripts/run.ps1), [webapp/app/api/analyze/route.ts:5](webapp/app/api/analyze/route.ts#L5), [webapp/app/api/qkview/\[id\]/apps/\[...path\]/route.ts:3](webapp/app/api/qkview/%5Bid%5D/apps/%5B...path%5D/route.ts#L3) |
+| `xml_stats` ca-bundle filter — `prerem_*` tombstones | Trust-store rollup only matched `.crt.<digits>` suffix, so post-upgrade `.crt.prerem_<...>` tombstones slipped through as user-certs into the expiry panel and top-N lists. Added a path-segment match on `(?:f5-)?ca-bundle\.crt\.` as the primary signal, kept the old digit regex as fallback. | [backend/qkview_analyzer/xml_stats.py](backend/qkview_analyzer/xml_stats.py) |
+| Stale backend → empty `logs_db/` | After user reported chip counts all `(0)` and `"Limiting closed port RST"` returning "Not Found" on a phrase that was visible in the same tile. Backend at PID 193833 had `lstart=Mon Apr 20 21:08:16 2026` — predated the Session 4 logs_db commit `6f8bfa3`. Running code had no `LOGS_DB_DIR`, no `_logs_db_path`, no `/logs/sources`, no `/logs`. Killed + restarted from current source; fresh upload created `backend/logs_db/logs_<id>.db`; chips + FTS5 search confirmed working by user. | — |
+| Brand rename: "QKView Log Analyzer" → "QKView Analyzer" | Global rename, 4 occurrences across landing page, analyzer page header, CLI docstring, package docstring. | [webapp/app/page.tsx:22](webapp/app/page.tsx#L22), [webapp/app/qkview/page.tsx:604](webapp/app/qkview/page.tsx#L604), [backend/qkview_analyzer/cli.py:85](backend/qkview_analyzer/cli.py#L85), [backend/qkview_analyzer/__init__.py:1](backend/qkview_analyzer/__init__.py#L1) |
+
+### Commit arc — 8 commits landed on origin/main
+
+Before this session, `origin/main` was at `2222b83` (CLAUDE.md docs only). This session resulted in the first meaningful public push of the fork. Commits, oldest-to-newest on the public push:
+
+| SHA | Type | Summary |
+|---|---|---|
+| `9357335` | chore(session) | session-end skill + SESSION_STATE + TODO (from Session 1, finally pushed) |
+| `96b597d` | fix(webapp) | reset view state on new upload + distinguish VELOS variants (Session 2) |
+| `8dcb0b3` | docs(session) | capture Session 3 archive audit + fork-vs-parent diff findings |
+| `6f8bfa3` | feat(logs) | interactive log search inside Extracted Critical/Warning Logs tile (Session 4) |
+| `ef6a70c` | chore(privacy) | scrub customer identifiers from docstrings, tests, and TODO |
+| `f054e66` | chore(ports) | default to 3001 / 8001 so the fork coexists with f5.assistant |
+| `2dc18ec` | fix(xml_stats) | filter prerem_* ca-bundle tombstones from cert rows |
+| `f98b96a` | feat(ui) | show cluster_nodes table for all F5OS archives that carry nodes |
+
+### Verified end-to-end
+
+- After stale-webapp restart: `curl http://localhost:3001/_next/static/chunks/*.css` → 200, 27 KB Tailwind output; browser renders styled page.
+- After stale-backend restart: fresh upload through UI → `backend/logs_db/logs_<id>.db` persisted; user confirmed chips + phrase search live.
+- `git push origin main`: `2222b83..f98b96a  main -> main` clean fast-forward.
+- Post-push regex re-sweep for customer PII patterns: no hits outside gitignored HAR files.
+
+### Unresolved / carried forward
+
+- **The `extractor.py` docstring PII leak is already public.** Initial commit `f27edce` carrying a real customer hostname + base-MAC (see local scrub-helper note for the exact strings) was pushed before this session's audit. The scrub in `ef6a70c` fixes the current tree, but git history on public origin (and any fork / cache / mirror) retains the old values. History-rewrite is the only way to un-publish and would require coordinated `git push --force` on the public origin — out of scope for this session per CLAUDE.md destructive-action rule. User should decide whether this warrants history rewrite or an accept-and-move-on stance.
+- **`.run_one.sh` / `.run_one_parent.sh` still untracked** at repo root. Session 3 flagged the promote-or-delete decision; this session did not touch them. They drive the seven-archive sweep against each backend and dump result JSONs to `/tmp/` — session-research tooling with embedded customer-archive paths.
+- **rSeries integration test tenant-name assertion was weakened** to `len == 2 and all non-empty` rather than exact ID equality. The weaker assertion passes on any 2-tenant fixture; the original was fixture-specific. If a future rSeries fixture has a different tenant count the test will need adjustment — previously it would have failed louder.
+- **The "QKView Analyzer" rename landed on disk but the running webapp on 3001 still serves the pre-rename build.** Source edits happened after the Session 5 rebuild; `.next/` on disk still corresponds to the pre-rename state. Next session (or the user right now) needs `cd webapp && npm run build` + restart to pick it up.
+
+### Next session should open with
+
+1. Rebuild + restart the webapp so the "QKView Analyzer" rename is live in the browser. `cd webapp && npm run build` → kill 3001 next-server → restart with `PORT=3001 FASTAPI_BACKEND_URL=http://127.0.0.1:8001 npm run start`.
+2. Decide how to handle the `extractor.py` PII leak now that it's public — accept, rotate out via history rewrite, or document as known-accepted risk.
+3. Close out the Session 3 `.run_one*.sh` promote-or-delete decision — they've carried through four sessions.
 
 ---
 

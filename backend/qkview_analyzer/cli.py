@@ -82,7 +82,7 @@ def _load_and_index(qkview_file: str) -> tuple:
 @click.group()
 @click.version_option(version="0.1.0", prog_name="qkview-analyzer")
 def cli():
-    """F5 BIG-IP QKView Log Analyzer.
+    """F5 BIG-IP QKView Analyzer.
 
     Automated log analysis, known-issue detection, and configuration context
     for F5 BIG-IP qkview diagnostic archives.
