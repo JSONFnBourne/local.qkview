@@ -910,7 +910,7 @@ export default function QKViewPage() {
                                     )}
                                 </div>
 
-                                {isController && f5osOverview.cluster_nodes.length > 0 ? (
+                                {f5osOverview.cluster_nodes.length > 0 ? (
                                     <div className="md:col-span-2">
                                         <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Cluster Nodes</p>
                                         <table className="w-full text-xs">
