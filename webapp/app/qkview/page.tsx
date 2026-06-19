@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings } from 'lucide-react';
+import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings, Search } from 'lucide-react';
 import LogsSearchTile from '../components/LogsSearchTile';
 
 type AppSummary = {
@@ -371,6 +371,147 @@ function AppDetailsPanel({
     );
 }
 
+// Configured Virtual Servers table with client-side search + row windowing.
+// vCMP archives carry ~2000 virtual servers on a single partition; rendering
+// every <tr> at once janks scroll and balloons the DOM. Above a threshold we
+// render only the rows in (and just around) the viewport, padding the rest
+// with spacer rows so the scrollbar still reflects the full list length.
+// Kept dependency-free on purpose — the runtime dep budget forbids pulling in
+// react-window / react-virtual just for this one table.
+const VS_ROW_HEIGHT = 33;       // px per single-line row (py-2 + text-xs)
+const VS_VIEWPORT_HEIGHT = 600; // px; matches the prior max-h-[600px] scroll box
+const VS_OVERSCAN = 10;         // extra rows above/below the viewport
+const VS_VIRTUALIZE_ABOVE = 100;
+
+function VirtualizedVSTable({
+    apps,
+    selectedAppPath,
+    onSelect,
+}: {
+    apps: AppSummary[];
+    selectedAppPath: string | null;
+    onSelect: (fullPath: string) => void;
+}) {
+    const [query, setQuery] = useState('');
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [scrollTop, setScrollTop] = useState(0);
+
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return apps;
+        return apps.filter(
+            (a) =>
+                a.name.toLowerCase().includes(q) ||
+                (a.destination || '').toLowerCase().includes(q) ||
+                (a.pool || '').toLowerCase().includes(q)
+        );
+    }, [apps, query]);
+
+    // Clear any active filter when the underlying app set changes (partition
+    // switch or a new upload) so a stale query doesn't hide the new list.
+    useEffect(() => {
+        setQuery('');
+    }, [apps]);
+
+    // Reset scroll to the top whenever the visible set changes so we never
+    // strand the viewport in the middle of a now-shorter list.
+    useEffect(() => {
+        setScrollTop(0);
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    }, [query, apps]);
+
+    const total = filtered.length;
+    const virtualize = total > VS_VIRTUALIZE_ABOVE;
+    const scrollable = total > 50;
+
+    let startIndex = 0;
+    let endIndex = total;
+    if (virtualize) {
+        startIndex = Math.max(0, Math.floor(scrollTop / VS_ROW_HEIGHT) - VS_OVERSCAN);
+        const visible = Math.ceil(VS_VIEWPORT_HEIGHT / VS_ROW_HEIGHT) + VS_OVERSCAN * 2;
+        endIndex = Math.min(total, startIndex + visible);
+    }
+    const topPad = startIndex * VS_ROW_HEIGHT;
+    const bottomPad = (total - endIndex) * VS_ROW_HEIGHT;
+    const visibleRows = filtered.slice(startIndex, endIndex);
+
+    return (
+        <>
+            <div className="mb-3 flex items-center gap-3">
+                <div className="relative flex-1 max-w-md">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Filter by name, destination, or pool…"
+                        className="w-full pl-8 pr-3 py-1.5 text-sm rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                    />
+                </div>
+                <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                    {query.trim() ? `${total} of ${apps.length}` : `${total}`} shown
+                </span>
+            </div>
+            <div
+                ref={scrollRef}
+                onScroll={(e) => {
+                    if (virtualize) setScrollTop(e.currentTarget.scrollTop);
+                }}
+                className="overflow-x-auto overflow-y-auto"
+                style={scrollable ? { maxHeight: VS_VIEWPORT_HEIGHT } : undefined}
+            >
+                <table className="w-full text-sm">
+                    <thead
+                        className={`text-xs text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 ${scrollable ? 'sticky top-0 bg-white dark:bg-slate-800 z-10' : ''}`}
+                    >
+                        <tr>
+                            <th className="text-left py-2 pr-4 font-semibold">Name</th>
+                            <th className="text-left py-2 pr-4 font-semibold">Destination</th>
+                            <th className="text-left py-2 font-semibold">Pool</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {total === 0 ? (
+                            <tr>
+                                <td colSpan={3} className="py-6 text-center text-sm text-slate-500">
+                                    No virtual servers match “{query.trim()}”.
+                                </td>
+                            </tr>
+                        ) : (
+                            <>
+                                {topPad > 0 && (
+                                    <tr style={{ height: topPad }} aria-hidden>
+                                        <td colSpan={3} className="p-0 border-0" />
+                                    </tr>
+                                )}
+                                {visibleRows.map((a) => {
+                                    const isSelected = selectedAppPath === a.fullPath;
+                                    return (
+                                        <tr
+                                            key={a.fullPath}
+                                            onClick={() => onSelect(a.fullPath)}
+                                            className={`cursor-pointer ${isSelected ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'}`}
+                                        >
+                                            <td className="py-2 pr-4 font-mono text-xs text-slate-800 dark:text-slate-200 whitespace-nowrap">{a.name}</td>
+                                            <td className="py-2 pr-4 font-mono text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">{a.destination || '—'}</td>
+                                            <td className="py-2 font-mono text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">{a.pool || '—'}</td>
+                                        </tr>
+                                    );
+                                })}
+                                {bottomPad > 0 && (
+                                    <tr style={{ height: bottomPad }} aria-hidden>
+                                        <td colSpan={3} className="p-0 border-0" />
+                                    </tr>
+                                )}
+                            </>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </>
+    );
+}
+
 export default function QKViewPage() {
     const [file, setFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -408,10 +549,11 @@ export default function QKViewPage() {
     const isF5OS = rawProduct.startsWith('F5OS');
     const platformFlavor: string = (analysisResult?.device_info?.platform || '').toLowerCase();
     const f5osVariant: string = analysisResult?.device_info?.f5os_variant || '';
-    // VELOS syscon (chassis controller) hosts no tenants; VELOS partition and
-    // rSeries both do. PRODUCT.Platform reports "controller" for both VELOS
-    // flavors, so we use the backend-computed variant (keyed off subpackage
-    // signatures) instead of the platform string.
+    // PRODUCT.Platform reports "controller" for both VELOS flavors, so we use
+    // the backend-computed variant (keyed off subpackage signatures) to drive
+    // controller-specific framing (Chassis card vs Tenant Counts). The tenant
+    // inventory itself renders for any F5OS archive that carries `show tenants`
+    // output — a VELOS controller can surface a chassis-wide tenant inventory.
     const isController = isF5OS && f5osVariant === 'velos-controller';
     const f5osCommands: Record<string, string> = analysisResult?.f5os_commands || {};
     const f5osHealth: F5OSHealth[] = analysisResult?.f5os_health || [];
@@ -983,9 +1125,9 @@ export default function QKViewPage() {
                                 ) : null}
                             </div>
 
-                            {!isController && f5osOverview.tenants.length > 0 && (
+                            {f5osOverview.tenants.length > 0 && (
                                 <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
-                                    <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Tenants</p>
+                                    <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">{isController ? 'Tenant Inventory (chassis-wide)' : 'Tenants'}</p>
                                     <table className="w-full text-xs">
                                         <thead className="text-slate-500 uppercase">
                                             <tr>
@@ -1077,7 +1219,7 @@ export default function QKViewPage() {
                     )}
 
                     {/* F5OS: explain why there is no VS / Pool panel */}
-                    {isF5OS && !isController && f5osOverview && f5osOverview.tenants.length > 0 && (
+                    {isF5OS && f5osOverview && f5osOverview.tenants.length > 0 && (
                         <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-400 flex items-start gap-3">
                             <Folder className="w-4 h-4 mt-0.5 text-slate-500 shrink-0" />
                             <div>
@@ -1123,35 +1265,12 @@ export default function QKViewPage() {
                                     : (partitions[0] && appsByPartition[partitions[0]]?.length
                                         ? appsByPartition[partitions[0]]
                                         : apps);
-                                const scrollable = displayedApps.length > 50;
                                 return (
-                            <div className={`overflow-x-auto ${scrollable ? 'max-h-[600px] overflow-y-auto' : ''}`}>
-                                <table className="w-full text-sm">
-                                    <thead className={`text-xs text-slate-500 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 ${scrollable ? 'sticky top-0 bg-white dark:bg-slate-800 z-10' : ''}`}>
-                                        <tr>
-                                            <th className="text-left py-2 pr-4 font-semibold">Name</th>
-                                            <th className="text-left py-2 pr-4 font-semibold">Destination</th>
-                                            <th className="text-left py-2 font-semibold">Pool</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                                        {displayedApps.map((a) => {
-                                            const isSelected = selectedAppPath === a.fullPath;
-                                            return (
-                                                <tr
-                                                    key={a.fullPath}
-                                                    onClick={() => loadAppDetails(a.fullPath)}
-                                                    className={`cursor-pointer ${isSelected ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'}`}
-                                                >
-                                                    <td className="py-2 pr-4 font-mono text-xs text-slate-800 dark:text-slate-200">{a.name}</td>
-                                                    <td className="py-2 pr-4 font-mono text-xs text-slate-600 dark:text-slate-400">{a.destination || '—'}</td>
-                                                    <td className="py-2 font-mono text-xs text-slate-600 dark:text-slate-400">{a.pool || '—'}</td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
+                                    <VirtualizedVSTable
+                                        apps={displayedApps}
+                                        selectedAppPath={selectedAppPath}
+                                        onSelect={loadAppDetails}
+                                    />
                                 );
                             })()}
                             {selectedAppPath && (
