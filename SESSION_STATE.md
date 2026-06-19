@@ -2,7 +2,43 @@
 
 Running log of Claude Code sessions in this repo. Each session has three buckets: completed work, unresolved issues, next steps. Most recent session at the top.
 
-Last updated: 2026-04-21 (Session 6)
+Last updated: 2026-06-18 (Session 7)
+
+---
+
+## Session 7 — 2026-06-18
+
+Focus: user greenlit four backlog items in one go — (1) surface VELOS *controller* tenant inventory (resolving the long-standing Session-2 product question), (2) the `logs_db/` retention sweep, (3) search + virtualization on the Configured Virtual Servers table, (4) hardening the negation-only log query. All four landed.
+
+**Note on the gap since Session 6.** Six commits landed between Session 6 and this session that were never logged here (`74e9b16`, `b6fc38f`, `d3b9f23` README Windows/ExecutionPolicy work; `5324432` FTS5 implicit-prefix + cached logs/sources + elapsed timer; `708cdc2` ignore `.claude/`; `6d05292` bump next to ^16.2.4 for GHSA-q4gf-8mx6-v5v3). They closed the top two Session-6 follow-ups (README ExecutionPolicy note is in; the `backup/pre-scrub` branch + `pre-scrub-backup` tag are gone). Working tree at session start: clean, `main` even with `origin/main`, plus one stray untracked `f5favicon.ico` (not wired into the webapp — still undecided).
+
+### Completed
+
+| Area | Change | Files |
+|---|---|---|
+| VELOS controller tenant inventory | The tenant parser was always variant-agnostic (parses `show tenants` for any F5OS archive); suppression was purely a UI gate. Relaxed the tenant-table gate and the "tenant configs not included" banner from `!isController` to `tenants.length > 0`; controller framing relabels the table **"Tenant Inventory (chassis-wide)"**. Top block still shows the Chassis card for controllers (vs Tenant Counts for partition/rSeries). Updated the stale `isController` comment. | [webapp/app/qkview/page.tsx](webapp/app/qkview/page.tsx) |
+| `logs_db/` retention sweep | `_sweep_orphan_logs_db()` called from `startup_event`. Removes `logs_<id>.db` whose id is absent from the `analyses` table, plus `.tmp_logs_*.db` crash leftovers older than a 1 h age guard (so a live analysis in another worker is never reaped). Reads valid ids first; skips entirely if the table can't be read (never deletes on uncertainty). Logs removed count + reclaimed MB. | [backend/main.py](backend/main.py) |
+| VS table search + virtualization | New dependency-free `VirtualizedVSTable` (dep budget forbids react-window). Client-side filter over name/destination/pool, "X of Y shown" counter, empty-state row. Fixed-row-height windowing above 100 rows: only viewport + 10-row overscan rendered, top/bottom spacer `<tr>`s keep the scrollbar honest; cells `whitespace-nowrap` to keep rows single-line so row height is stable. Filter + scroll reset when the app set changes (partition switch / new upload). Replaced the inline IIFE table body. | [webapp/app/qkview/page.tsx](webapp/app/qkview/page.tsx) |
+| Negation-only query → 400 | `_parse_log_query` raises `NegationOnlyQuery` (a `ValueError`) when a query reduces to negatives only; `search_logs` catches it → HTTP 400 with a user-facing message. Replaces the old silent `fts=None` fallback that matched everything. Field-filter-only queries still return `fts=None` and work unchanged. | [backend/main.py](backend/main.py) |
+
+### Verified
+
+- **Parser unit-checked in isolation** (no venv deps on this host, so extracted the pure-Python helpers via AST and exec'd them): `error -timeout` → `(error*) NOT (timeout*)`; `severity:error` → `(None, {severity:error})`; `mcpd` → `mcpd*`; `  ` → `(None, {})` (no raise); `-timeout` → raises `NegationOnlyQuery`. `py_compile main.py` clean.
+- **Retention sweep dry-run against the real `backend/logs_db/`** (logs_44–47, all with matching `analyses` rows) → would delete nothing. Confirmed it doesn't nuke live indexes.
+- **Controller tenant data inspected from the persisted `local_qkview.db`:** every `velos-controller` capture (`syscon.tar`, ids 19/24/32) has **0 tenants**; `velos-partition` has 5, `rseries` has 2. See caveat below.
+
+### Caveats / unresolved
+
+- **Controller tenant inventory is invisible on `syscon.tar`** because a VELOS controller qkview doesn't emit `show tenants` — tenants live on the partitions. The UI change is correct and data-driven (renders when data exists) but the available controller fixture has nothing to show. Surfacing a true chassis-wide inventory would need cross-subpackage aggregation in the extractor (pull partition/peer-qkview tenant data from the controller bundle) — logged as a new **High** TODO; confirm scope before building.
+- **No webapp build run this session.** Node/npm aren't on this host (the webapp builds on outcome/elitebook). Backend changes were syntax- + unit-checked; the `page.tsx` changes were review-checked only. **Run `cd webapp && npm run build` on a node host before relying on the VS table / controller changes**, then rebuild + restart the 3001 server.
+- **VS windowing uses a fixed 33px row height.** If real rows differ, the scrollbar thumb can drift slightly, but content always fills the viewport (slice keys off live `scrollTop`) and overscan hides edges. Acceptable; revisit only if it visibly janks.
+- **Stray `f5favicon.ico`** still untracked at repo root, not wired into the webapp. Decide: wire it in (as `webapp/app/icon.ico`) or delete.
+
+### Next session should open with
+
+1. Build the webapp on a node host and smoke-test the VS table (filter, windowing on vCMP's 1961 rows) and the controller page.
+2. Get the user's call on the aggregated controller tenant inventory (new High TODO) — and on the stray favicon.
+3. Commit this session's work (backend `main.py` + `webapp/app/qkview/page.tsx` + doc refresh) once the build is confirmed green.
 
 ---
 
