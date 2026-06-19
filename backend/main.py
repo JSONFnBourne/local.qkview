@@ -96,6 +96,70 @@ def _logs_db_path(analysis_id: int) -> str:
     return os.path.join(LOGS_DB_DIR, f"logs_{analysis_id}.db")
 
 
+_LOGS_DB_FILE_RE = re.compile(r"^logs_(\d+)\.db$")
+# Crashed analyses can leave a `.tmp_logs_<pid>_<ms>.db` behind (the rename to
+# the final name never ran). Only reap ones older than this so a concurrently
+# running analysis in another worker is never pulled out from under itself.
+_STALE_TMP_AGE_SECONDS = 3600
+
+
+def _sweep_orphan_logs_db() -> None:
+    """Remove per-analysis FTS5 index files with no matching `analyses` row.
+
+    Each analysis leaves a 40–125 MB `logs_<id>.db`. Deleting an `analyses`
+    row (or a crash mid-analyze) can orphan one with nothing left to reclaim
+    it. Runs once at startup: drops `logs_<id>.db` whose id is absent from the
+    `analyses` table, plus stale `.tmp_logs_*.db` leftovers past an age guard.
+    """
+    try:
+        names = os.listdir(LOGS_DB_DIR)
+    except OSError:
+        return
+
+    valid_ids: set[int] = set()
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            valid_ids = {row[0] for row in conn.execute("SELECT id FROM analyses")}
+    except sqlite3.Error:
+        # If we can't read the table, don't risk deleting live indexes.
+        logger.warning("logs_db sweep skipped: could not read analyses table")
+        return
+
+    now = time.time()
+    removed = 0
+    reclaimed = 0
+    for name in names:
+        path = os.path.join(LOGS_DB_DIR, name)
+        match = _LOGS_DB_FILE_RE.match(name)
+        if match:
+            if int(match.group(1)) in valid_ids:
+                continue
+        elif name.startswith(".tmp_logs_") and name.endswith(".db"):
+            try:
+                if now - os.path.getmtime(path) < _STALE_TMP_AGE_SECONDS:
+                    continue
+            except OSError:
+                continue
+        else:
+            continue
+        try:
+            reclaimed += os.path.getsize(path)
+        except OSError:
+            pass
+        try:
+            os.remove(path)
+            removed += 1
+        except OSError:
+            logger.exception("Failed to remove orphan log index %s", name)
+
+    if removed:
+        logger.info(
+            "logs_db sweep: removed %d orphan index file(s), reclaimed %.1f MB",
+            removed,
+            reclaimed / (1024 * 1024),
+        )
+
+
 # Chip name -> list of source_file matching strategies. Each entry is a SQL LIKE
 # pattern. Covers the common F5 log naming variants:
 #   ltm, ltm.1, ltm.2_transformed      (TMOS, root)
@@ -128,6 +192,7 @@ def init_db():
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    _sweep_orphan_logs_db()
 
 @app.get("/")
 async def root():
@@ -487,6 +552,16 @@ _FIELD_FILTER_RE = re.compile(
 _FTS_OPERATORS = {"AND", "OR", "NOT", "NEAR"}
 
 
+class NegationOnlyQuery(ValueError):
+    """Raised when a query reduces to only negated terms (e.g. `-foo`).
+
+    FTS5 cannot evaluate a standalone negation — there is no row set to
+    subtract from without at least one positive term. Rather than silently
+    dropping the negation and matching everything (the opposite of intent),
+    the endpoint turns this into an HTTP 400.
+    """
+
+
 def _maybe_prefix(tok: str) -> str:
     """Append `*` for FTS5 prefix matching on bare word tokens.
 
@@ -556,8 +631,13 @@ def _parse_log_query(q: str) -> tuple[Optional[str], dict[str, str]]:
     elif positives:
         fts = " ".join(positives)
     elif negatives:
-        # FTS5 won't accept standalone negation — drop it and rely on filters.
-        fts = None
+        # FTS5 won't accept standalone negation. Signal the caller rather than
+        # falling back to "match everything", which is the opposite of intent.
+        raise NegationOnlyQuery(
+            "Negation-only queries aren't supported. Add at least one positive "
+            "search term to subtract from (e.g. `error -timeout` instead of "
+            "just `-timeout`)."
+        )
     else:
         fts = None
     return fts, filters
@@ -637,7 +717,10 @@ async def search_logs(
     offset: int = Query(0, ge=0),
 ):
     """Query the persisted FTS5 log index for this analysis."""
-    fts_match, parsed_filters = _parse_log_query(q or "")
+    try:
+        fts_match, parsed_filters = _parse_log_query(q or "")
+    except NegationOnlyQuery as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     # Field filters from the query string override query-parsed filters only
     # when the query-string side wasn't set.
