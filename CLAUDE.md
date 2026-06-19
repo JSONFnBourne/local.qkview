@@ -6,7 +6,7 @@ Guidance for Claude Code when working in the Local.Qkview repository.
 
 Local.Qkview is a standalone, GPU-free, offline QKView archive analyzer for F5 BIG-IP (TMOS), F5OS rSeries, and VELOS. Two cooperating processes — a FastAPI backend and a Next.js webapp — packaged for Linux / macOS / Windows, distributed via GitHub as freeware for F5 field engineers.
 
-It is a fork of the QKView subsystem from the F5 Assistant project (`~/projects/f5.assistant/`). The parent project is actively maintained and must not be modified from here. Treat the parent as read-only reference material.
+It is a fork of the QKView subsystem from the F5 Assistant project. The parent (`f5.assistant/`) is actively maintained but **lives on the `outcome` host, not on this workstation** — reach it via VS Code Remote-SSH to `outcome` (path `~/projects/f5.assistant/` there). It must not be modified from here; treat it as read-only reference material.
 
 ## Starting / running things
 
@@ -39,7 +39,7 @@ cd webapp && npm run build && npm run start    # prod mirror
 | backend   | http://127.0.0.1:8001        | [backend/](backend/)             |
 | webapp    | http://127.0.0.1:3001        | [webapp/](webapp/)               |
 
-Defaults are 3001/8001 to coexist with the parent `f5.assistant` systemd services (which bind 3000/8000). Override via `FRONTEND_PORT` / `BACKEND_PORT` env vars before invoking `scripts/run.{sh,ps1}`.
+Defaults are 3001/8001 to coexist with the parent `f5.assistant` systemd services (which bind 3000/8000) — those run on `outcome`, so on a host where both are checked out / port-forwarded the two won't collide. Override via `FRONTEND_PORT` / `BACKEND_PORT` env vars before invoking `scripts/run.{sh,ps1}`.
 
 ## Tests and lint
 
@@ -69,7 +69,7 @@ This is the single most important architectural fact in the repo. Same `.tar` / 
 
 Never guess command-output paths — always read `manifest.json` in each subpackage. `/confd/scripts/f5_confd_run_cmd show …` is F5OS's CLI wrapper; strip that prefix when displaying command names.
 
-**Before changing [backend/qkview_analyzer/extractor.py](backend/qkview_analyzer/extractor.py), [config_parser.py](backend/qkview_analyzer/config_parser.py), [tmos_config.py](backend/qkview_analyzer/tmos_config.py), or [xml_stats.py](backend/qkview_analyzer/xml_stats.py):** read the corresponding file in the parent project's `QKVIEW_FORMATS.md` at `~/projects/f5.assistant/QKVIEW_FORMATS.md` — that remains the authoritative field-by-field reference. We don't duplicate it here.
+**Before changing [backend/qkview_analyzer/extractor.py](backend/qkview_analyzer/extractor.py), [config_parser.py](backend/qkview_analyzer/config_parser.py), [tmos_config.py](backend/qkview_analyzer/tmos_config.py), or [xml_stats.py](backend/qkview_analyzer/xml_stats.py):** read the corresponding file in the parent project's `QKVIEW_FORMATS.md` — at `~/projects/f5.assistant/QKVIEW_FORMATS.md` **on the `outcome` host** (the parent isn't checked out on this workstation). That remains the authoritative field-by-field reference. We don't duplicate it here.
 
 ### Analyzer data flow
 
@@ -179,7 +179,7 @@ The origin remote will be a public transmission boundary. Anything committed and
 - [NOTICE](NOTICE) — third-party attributions.
 - [scripts/run.sh](scripts/run.sh), [scripts/run.ps1](scripts/run.ps1) — one-shot launchers (assume one-time install is done).
 
-Authoritative parent docs (read-only reference at `~/projects/f5.assistant/`):
+Authoritative parent docs (read-only reference at `~/projects/f5.assistant/` **on the `outcome` host** — not present on this workstation):
 
 - `QKVIEW_FORMATS.md` — archive layouts, iHealth Quick-Links mapping, field-by-field.
 - `CLAUDE.md` — parent platform's operating guide.
