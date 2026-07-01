@@ -429,6 +429,20 @@ class Reporter:
                     "cpus": [r.fields for r in xs.deduped_cpus()],
                     "active_modules": [r.fields for r in xs.active_modules],
                     "asm_policies": [r.fields for r in xs.asm_policies],
+                    # Full DB-variable inventory (name/value/default) from
+                    # mcp_module.xml — the runtime `sys db` dump. Trimmed to
+                    # three fields (the record carries a dozen) so the webapp
+                    # can offer search + a non-default filter without shipping
+                    # the object_id/min/max/enumerated noise. ~2.6k rows.
+                    "db_variables": [
+                        {
+                            "name": r.fields.get("name", ""),
+                            "value": r.fields.get("value", ""),
+                            "default": r.fields.get("default", ""),
+                        }
+                        for r in xs.db_variables
+                        if r.fields.get("name")
+                    ],
                     # Certs typically number in the hundreds (941 on the
                     # reference archive). Ship only the 50 soonest-expiring
                     # so the UI can render an expiry panel without inflating
