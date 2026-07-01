@@ -311,3 +311,139 @@ def parse_bigip_base_conf(content: str) -> BigIPConfig:
         config.hostname = hn_match.group(1).strip()
 
     return config
+
+
+def _extract_subblock(block: str, key: str) -> str:
+    """Return the brace-matched body of a nested `key { ... }` sub-stanza.
+
+    `_extract_list` stops at the first `}`, which breaks on nested blocks
+    like `devices { /Common/a { } /Common/b { } }`. This walks braces so the
+    whole sub-block is returned.
+    """
+    m = re.search(rf"\b{re.escape(key)}\s*\{{", block)
+    if not m:
+        return ""
+    start = m.end()
+    depth = 1
+    pos = start
+    while pos < len(block) and depth > 0:
+        if block[pos] == "{":
+            depth += 1
+        elif block[pos] == "}":
+            depth -= 1
+        pos += 1
+    return block[start:pos - 1]
+
+
+# Friendly names for TMOS provisionable modules (matches iHealth labels).
+_MODULE_FRIENDLY = {
+    "afm":   "Advanced Firewall Manager",
+    "am":    "Application Acceleration Manager",
+    "apm":   "Access Policy Manager",
+    "asm":   "Application Security Manager",
+    "avr":   "Application Visibility and Reporting",
+    "cgnat": "Carrier-Grade NAT",
+    "dos":   "DoS Protection",
+    "fps":   "Fraud Protection Service",
+    "gtm":   "DNS Services (GTM)",
+    "ilx":   "iRules LX",
+    "lc":    "Link Controller",
+    "ltm":   "Local Traffic Manager",
+    "pem":   "Policy Enforcement Manager",
+    "sslo":  "SSL Orchestrator",
+    "swg":   "Secure Web Gateway",
+    "urldb": "URL Filtering (URLDB)",
+    "vcmp":  "Virtual Clustered Multiprocessing",
+    "wam":   "Web Accelerator",
+    "wom":   "WAN Optimization",
+}
+
+
+def parse_sys_provision(content: str) -> list[dict]:
+    """Parse `sys provision <module> { level <level> }` stanzas from config.
+
+    TMOS writes a provision stanza for every module that has been turned on;
+    modules left at the default `none` are absent. Returns one dict per
+    provisioned module with the iHealth-style friendly name and level.
+    """
+    results: list[dict] = []
+    pattern = re.compile(r"^sys provision (\S+)\s*\{([^}]*)\}", re.MULTILINE | re.DOTALL)
+    for m in pattern.finditer(content):
+        module = m.group(1).strip()
+        block = m.group(2)
+        lvl = re.search(r"\blevel\s+(\S+)", block)
+        # A bare `sys provision ltm { }` stanza means the module is on at its
+        # default level (nominal) — TMOS omits the explicit `level` line.
+        level = lvl.group(1).strip() if lvl else "nominal"
+        cpu = re.search(r"\bcpu-ratio\s+(\S+)", block)
+        mem = re.search(r"\bmemory-ratio\s+(\S+)", block)
+        results.append({
+            "module": module,
+            "name": _MODULE_FRIENDLY.get(module.lower(), module.upper()),
+            "level": level,
+            "cpu_ratio": cpu.group(1) if cpu else "",
+            "memory_ratio": mem.group(1) if mem else "",
+        })
+    # LTM is the only module whose default level is `nominal` rather than
+    # `none`, so TMOS omits its provision stanza when it sits at the default.
+    # iHealth's `list sys provision` still shows it — inject it so the panel
+    # matches, but only when config didn't explicitly set ltm (e.g. to none).
+    if not any(r["module"].lower() == "ltm" for r in results):
+        results.append({
+            "module": "ltm",
+            "name": _MODULE_FRIENDLY["ltm"],
+            "level": "nominal",
+            "cpu_ratio": "",
+            "memory_ratio": "",
+        })
+    # Sort provisioned-first (anything not "none"), then by module name.
+    results.sort(key=lambda d: (d["level"] == "none", d["module"]))
+    return results
+
+
+def parse_cm_redundancy(content: str) -> dict:
+    """Parse CM trust/device-group/traffic-group config into an HA topology.
+
+    Sourced from bigip_base.conf `cm device`, `cm device-group`, and
+    `cm traffic-group` stanzas — the redundancy picture available offline
+    without the live `show cm` command outputs (which TMOS qkviews omit).
+    """
+    devices: list[dict] = []
+    for name, block in _extract_stanza_blocks(content, "cm device"):
+        devices.append({
+            "name": name.split("/")[-1],
+            "full_name": name,
+            "self_device": _extract_value(block, "self-device").lower() == "true",
+            "management_ip": _extract_value(block, "management-ip"),
+            "hostname": _extract_value(block, "hostname"),
+            "version": _extract_value(block, "version"),
+            "marketing_name": _extract_value(block, "marketing-name"),
+            "edition": _extract_value(block, "edition"),
+            "platform_id": _extract_value(block, "platform-id"),
+        })
+
+    device_groups: list[dict] = []
+    for name, block in _extract_stanza_blocks(content, "cm device-group"):
+        members = re.findall(r"(/\S+)\s*\{", _extract_subblock(block, "devices"))
+        device_groups.append({
+            "name": name.split("/")[-1],
+            "type": _extract_value(block, "type"),
+            "auto_sync": _extract_value(block, "auto-sync"),
+            "network_failover": _extract_value(block, "network-failover"),
+            "devices": [d.split("/")[-1] for d in members],
+        })
+
+    traffic_groups: list[dict] = []
+    for name, block in _extract_stanza_blocks(content, "cm traffic-group"):
+        order = re.findall(r"/\S+", _extract_subblock(block, "ha-order"))
+        traffic_groups.append({
+            "name": name.split("/")[-1],
+            "ha_order": [d.split("/")[-1] for d in order],
+            "auto_failback_enabled": _extract_value(block, "auto-failback-enabled"),
+        })
+
+    return {
+        "devices": devices,
+        "device_groups": device_groups,
+        "traffic_groups": traffic_groups,
+    }
