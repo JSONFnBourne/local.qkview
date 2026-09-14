@@ -28,7 +28,7 @@ _6 open in RT, rendered 2026-09-14 by `rt sync` — edit the ticket, not this li
 - **RT#37** (Session 1) Audit [v1_localhost.har](v1_localhost.har), [v2_localhost.har](v2_localhost.har), [v3_localhost.har](v3_localhost.har) for embedded customer PII the same way [v4_localhost.har](v4_localhost.har) was reviewed — confirm all are local-only.
 - **RT#38** (Session 1) Build a HAR scrub helper that rewrites customer hostnames / IP ranges / device-name prefixes observed in captured HARs to RFC5737 addresses and synthetic names, so a sanitized capture can live in-tree for CI/benchmarking. Keep the real-pattern list in a local, gitignored note — not in repo docs.
 - **RT#39** (Session 1) Investigate the `vCMP.tgz` 77 s and `partition.tar` 64 s receive times — response payloads (1.4–1.5 MB) are not that much larger than `tmos_ve.qkview` (236 KB / 14 s). Find whether the cost is in the streaming producer (extractor / rule engine) or in tar handling for nested layouts.
-- **RT#40** (Session 2) Patch [CLAUDE.md](CLAUDE.md) "What this is" table — `partition_manager` should be `partition\d*_manager` (real VELOS partition archives use `partition1_manager`, and chassis can host `partition1..N`). Detector already handles both; doc hasn't caught up.
+- **RT#40** — ✅ closed; body in [.archived/TODO_archive_closed-through-2026-09-14.md](.archived/TODO_archive_closed-through-2026-09-14.md).
 
 ## Low
 
@@ -40,6 +40,10 @@ _6 open in RT, rendered 2026-09-14 by `rt sync` — edit the ticket, not this li
 - [x] (Session 8) **First release — `v0.1.0` tagged + GitHub Release published.** Annotated tag at `af6f50f`; Release at https://github.com/JSONFnBourne/local.qkview/releases/tag/v0.1.0. Closes the biggest readiness gap from the status review (no tagged release / no distribution artifact).
 - [x] (Session 8) **`lxml` install break on Python 3.14 — fixed.** `lxml==5.3.0` has no cp314 wheel and forced a source build needing system `libxml2`/`libxslt`. Bumped pin to `lxml~=6.1`; `requirements.txt` now installs clean on 3.14. Suite green (25 passed, 31 skipped). [backend/requirements.txt](backend/requirements.txt), commit `af6f50f`.
 - [x] (Session 8) **HAR captures audited then deleted.** `v1`–`v5_localhost.har` confirmed never-tracked (no commit/ref) but carried customer-derived config; deleted at user's call. Resolves the Session-1 "audit v1/v2/v3 HARs" item and retires the "HAR scrub helper" item (no HARs left in-tree to sanitize).
+  - **Correction (2026-09-14):** that deletion was on another checkout. All five
+    are still present on the maintainer's primary workstation and still carry
+    customer-derived data, so **RT#37 and RT#38 are NOT retired** — they remain
+    open, and the detail is on the tickets rather than here.
 - [x] (Session 8) **PII-dangler exposure closed at the source.** Session-6 pre-rewrite commits were still HTTP 200 on GitHub (`f27edce`, `e974248`). Repo had 0 forks/network, so user deleted the GitHub repo; recreated from clean local history, re-pushed `main` + `v0.1.0`, recreated the Release. Old SHAs now HTTP 404 — danglers gone permanently, no Support purge needed. Closes the Session-6 dangling-object caveat.
 - [x] (Session 8) Synced this clone to Session-7 head (was 3 behind origin); cleared 25 exec-bit-only working-tree changes; rebuilt dead `.venv` on Python 3.14.4 and ran `pytest` (25 passed / 31 skipped).
 - [x] (Session 7) **VELOS controller tenant inventory** — resolved the Session-2 product question: surface it. Tenant table + caveat banner are now data-driven (gate relaxed from `!isController` to `tenants.length > 0`); controller framing relabels the table "Tenant Inventory (chassis-wide)". Data-driven, so it lights up only when the archive carries `show tenants` output. [webapp/app/qkview/page.tsx](webapp/app/qkview/page.tsx) — see new High item re: aggregated controller inventory.

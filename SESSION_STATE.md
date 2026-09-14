@@ -2,9 +2,52 @@
 
 Running log of Claude Code sessions in this repo. Each session has three buckets: completed work, unresolved issues, next steps. Most recent session at the top.
 
-Last updated: 2026-06-30 (Session 8)
+Last updated: 2026-09-14 (Session 9)
 
 ---
+
+## Session 9 — 2026-09-14
+
+**Completed**
+
+- **RT#203 — a real production customer qkview was on this disk, and is now gone.**
+  Found while measuring archive shapes for the sibling `v2_qkview` fixtures:
+  `qkview/vCMP.tgz` (393 MB) carried 956 members naming a customer's internal
+  Kubernetes API, ingress and guest-wifi endpoints. **No git exposure at any point** —
+  verified before anything else, because this repo has a public origin: nothing under
+  `qkview/` tracked, no archive added on any ref, no blob over 5 MB in history, ignored
+  four ways. Operator ruled delete once the case had closed and ran it themselves;
+  sha256 verified immediately before removal. The seven remaining archives were
+  re-swept for that domain — zero hits, though that is one domain string and not a
+  clearance.
+- **Recorded what the directory holds**, in two places because one cannot be tracked:
+  an uncommitted `qkview/README.md` at the point of use (the `vCMP.tgz` row kept and
+  struck through, so the history stays readable), and a tracked pointer in `CLAUDE.md`.
+- **Merged `origin/main` — Session 8's v0.1.0, file explorer and findings export —
+  and pushed.** Not a fast-forward: origin was 4 ahead. One conflict, `TODO.md`,
+  resolved in favour of the RT-migrated form, which is also a superset.
+- **Two things stopped before that public push:** a `.bak` file of mine that
+  `git add -A` had swept into a commit, and the first-ever appearance of an internal
+  hostname (`rt.home.arpa`) and a local directory path in a public repository.
+
+**Unresolved**
+
+- **RT#37 / RT#38 — all five HARs still exist here with customer data.** Session 8's
+  note says they were audited and deleted and retires both tickets; that happened on
+  another checkout. Per-file counts are on RT#37. `v4`, the one that note calls
+  reviewed, still carries the domain. **This is the open decision** — the same one
+  that was taken for `vCMP.tgz`.
+- **RT#39's premise is half gone** — it compares `vCMP.tgz`'s receive time against
+  `partition.tar`'s. Still answerable with the archives that remain, after re-measuring.
+- **RT#41** — the flat ESLint config was written from the installed package's export
+  shapes but **has never been executed**: blackbriar has no node runtime.
+- RT#35 (product decision), RT#36 unchanged.
+
+**Next steps**
+
+1. **Decide what happens to the five HAR files.**
+2. Run `npm run lint` once on a host with node, to close RT#41.
+3. Re-measure RT#39 against `partition.tar` and `tmos_ve.qkview`.
 
 ## Session 8 — 2026-06-30
 
