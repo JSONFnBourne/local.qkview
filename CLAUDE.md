@@ -165,17 +165,23 @@ The origin remote will be a public transmission boundary. Anything committed and
 - PII: real email addresses other than F5 corporate (`*@f5.com`) or RFC/doc synthetic examples; customer names; customer device hostnames; serial numbers.
 - **Real QKView archives or anything extracted from one.** Customer config, pool-member IPs, cert CNs — all of it stays local. The `.gitignore` excludes `*.qkview`, `*.tgz`, `*.tar.gz` and `backend/local_qkview.db*` for this reason.
 
-  **`qkview/` on this host holds at least one REAL PRODUCTION CUSTOMER device
-  (RT#203, 2026-09-13).** That directory is itself gitignored (`.gitignore:38`,
-  `/qkview/`), so it carries its own uncommitted `README.md` naming which
-  archives are customer-bearing and which are lab — **read it before using
-  anything in there.** This pointer is tracked because that README is not, and
-  a fresh clone would otherwise give no warning. Verified at the time: nothing
-  under `qkview/` is tracked and no archive has ever been added on any ref, so
-  the public origin is clean. Operator ruling the same day: **qksan
-  (`v2_qkview`) is not to be pointed at the customer archive** — its own
-  operating standard gates real-engagement use behind five checks and gates 2
-  and 5 are unmet.
+  **`qkview/` on this host held a REAL PRODUCTION CUSTOMER device until
+  2026-09-14 (RT#203).** It was removed by operator ruling once the support case
+  closed; the seven remaining archives were re-swept for the domain that
+  identified it, with zero hits. That is one domain string and not a general
+  clearance — two of the remaining archives have no established provenance and
+  should be treated as unknown, not as lab.
+
+  That directory is itself gitignored (`.gitignore:38`, `/qkview/`), so it
+  carries its own uncommitted `README.md` recording what each archive is —
+  **read it before using anything in there.** This pointer is tracked because
+  that README is not, and a fresh clone would otherwise give no warning.
+  Verified when the customer archive was found: nothing under `qkview/` is
+  tracked and no archive has ever been added on any ref, so the public origin
+  is clean. Operator ruling the same day, standing as precedent for the next
+  such archive: **qksan (`v2_qkview`) is not to be pointed at customer data** —
+  its own operating standard gates real-engagement use behind five checks, and
+  gates 2 and 5 are unmet.
 
 **Allowed without scrubbing:**
 
