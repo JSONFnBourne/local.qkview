@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings, Search } from 'lucide-react';
+import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings, Search, Download, Database, Layers, FileText } from 'lucide-react';
 import LogsSearchTile from '../components/LogsSearchTile';
 
 type AppSummary = {
@@ -103,6 +103,7 @@ type XmlStatsPayload = {
     active_modules: XmlStatRow[];
     asm_policies: XmlStatRow[];
     top_expiring_certificates?: XmlStatRow[];
+    db_variables?: { name: string; value: string; default: string }[];
 };
 
 function AppDetailsPanel({
@@ -512,6 +513,189 @@ function VirtualizedVSTable({
     );
 }
 
+// Searchable TMOS DB-variable inventory (the runtime `sys db` dump from
+// mcp_module.xml). Each row carries its current value and shipped default, so
+// the card offers a non-default-only filter — the set engineers usually want.
+function DbVariablesCard({ vars }: { vars: { name: string; value: string; default: string }[] }) {
+    const [filter, setFilter] = useState('');
+    const [nonDefaultOnly, setNonDefaultOnly] = useState(true);
+    // An empty `value` means the variable sits at its default (mcp_module.xml
+    // only records an explicit value when one was set). So non-default ==
+    // value is present AND differs from the default.
+    const isChanged = (v: { value: string; default: string }) => v.value !== '' && v.value !== v.default;
+    const effective = (v: { value: string; default: string }) => v.value || v.default;
+    const nonDefaultCount = useMemo(() => vars.filter(isChanged).length, [vars]);
+    const shown = useMemo(() => {
+        const q = filter.trim().toLowerCase();
+        return vars.filter((v) => {
+            if (nonDefaultOnly && !isChanged(v)) return false;
+            if (!q) return true;
+            return v.name.toLowerCase().includes(q) || effective(v).toLowerCase().includes(q);
+        });
+    }, [vars, filter, nonDefaultOnly]);
+
+    return (
+        <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 max-h-[560px] overflow-hidden flex flex-col">
+            <h3 className="font-semibold text-lg mb-1 flex items-center gap-2">
+                <Database className="w-5 h-5 text-cyan-500" /> Database Variables ({vars.length})
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                Runtime <span className="font-mono">sys db</span> dump from mcp_module.xml. {nonDefaultCount} non-default.
+            </p>
+            <div className="flex items-center gap-3 mb-3">
+                <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+                    <input
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                        placeholder="Filter by name or value…"
+                        className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap cursor-pointer select-none">
+                    <input
+                        type="checkbox"
+                        checked={nonDefaultOnly}
+                        onChange={(e) => setNonDefaultOnly(e.target.checked)}
+                        className="accent-cyan-500"
+                    />
+                    Non-default only
+                </label>
+            </div>
+            <div className="overflow-y-auto">
+                <table className="w-full text-xs">
+                    <thead className="text-slate-500 uppercase sticky top-0 bg-white dark:bg-slate-800">
+                        <tr>
+                            <th className="text-left py-1 pr-2">Variable</th>
+                            <th className="text-left py-1 pr-2">Value</th>
+                            <th className="text-left py-1">Default</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {shown.map((v) => {
+                            const changed = isChanged(v);
+                            return (
+                                <tr key={v.name}>
+                                    <td className="py-1 pr-2 font-mono text-slate-700 dark:text-slate-300 break-all">{v.name}</td>
+                                    <td className={`py-1 pr-2 font-mono break-all ${changed ? 'text-cyan-700 dark:text-cyan-300 font-semibold' : 'text-slate-900 dark:text-slate-100'}`}>{effective(v) || '—'}</td>
+                                    <td className="py-1 font-mono text-slate-400 break-all">{v.default || '—'}</td>
+                                </tr>
+                            );
+                        })}
+                        {shown.length === 0 && (
+                            <tr><td colSpan={3} className="py-3 text-slate-500 text-center">No variables match.</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+type CapturedFile = { path: string; category: string; size: number };
+
+// Raw archive file explorer. Lists the text artifacts captured at analysis time
+// (config files, var/tmp daemon dumps, F5OS command outputs) and views/downloads
+// them on demand from the persisted store.
+function FileExplorer({ analysisId }: { analysisId: number }) {
+    const [files, setFiles] = useState<CapturedFile[] | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [selected, setSelected] = useState<string | null>(null);
+    const [content, setContent] = useState<string>('');
+    const [viewLoading, setViewLoading] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        fetch(`/api/qkview/${analysisId}/files`)
+            .then((r) => (r.ok ? r.json() : { files: [] }))
+            .then((d) => { if (!cancelled) setFiles(d.files || []); })
+            .catch(() => { if (!cancelled) setFiles([]); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [analysisId]);
+
+    const openFile = async (path: string) => {
+        setSelected(path);
+        setViewLoading(true);
+        setContent('');
+        try {
+            const r = await fetch(`/api/qkview/${analysisId}/files/${path.split('/').map(encodeURIComponent).join('/')}`);
+            setContent(await r.text());
+        } catch {
+            setContent('# failed to load file');
+        } finally {
+            setViewLoading(false);
+        }
+    };
+
+    const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+    const catTone: Record<string, string> = {
+        config: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
+        diagnostic: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+        command: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+    };
+
+    if (loading) {
+        return (
+            <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 text-sm text-slate-500 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading captured files…
+            </div>
+        );
+    }
+    if (!files || files.length === 0) return null;
+
+    return (
+        <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+            <h3 className="font-semibold text-lg mb-1 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-slate-500" /> Archive Files ({files.length})
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                Captured config, diagnostic dumps, and command outputs from the qkview. Click to view; use Download to save.
+            </p>
+            <div className="grid md:grid-cols-2 gap-4">
+                <ul className="divide-y divide-slate-100 dark:divide-slate-700 text-xs max-h-[420px] overflow-y-auto">
+                    {files.map((f) => (
+                        <li key={f.path}>
+                            <button
+                                onClick={() => openFile(f.path)}
+                                className={`w-full text-left py-2 flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 px-1 rounded ${selected === f.path ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
+                            >
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-semibold shrink-0 ${catTone[f.category] || 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}>{f.category}</span>
+                                <span className="font-mono text-slate-700 dark:text-slate-300 break-all flex-1">{f.path}</span>
+                                <span className="text-slate-400 tabular-nums shrink-0">{fmtSize(f.size)}</span>
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+                <div className="min-w-0">
+                    {selected ? (
+                        <div className="flex flex-col h-full">
+                            <div className="flex items-center justify-between mb-2 gap-2">
+                                <span className="font-mono text-xs text-slate-600 dark:text-slate-400 break-all">{selected}</span>
+                                <a
+                                    href={`/api/qkview/${analysisId}/files/${selected.split('/').map(encodeURIComponent).join('/')}`}
+                                    download={selected.split('/').pop()}
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 shrink-0"
+                                >
+                                    <Download className="w-3.5 h-3.5" /> Download
+                                </a>
+                            </div>
+                            <pre className="flex-1 bg-black rounded p-3 text-[11px] leading-relaxed text-green-300 font-mono overflow-auto whitespace-pre-wrap max-h-[420px]">
+                                {viewLoading ? '# loading…' : content}
+                            </pre>
+                        </div>
+                    ) : (
+                        <div className="h-full flex items-center justify-center text-sm text-slate-400 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg min-h-[120px]">
+                            Select a file to view its contents
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function QKViewPage() {
     const [file, setFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -561,7 +745,10 @@ export default function QKViewPage() {
     const xmlStats: XmlStatsPayload | null = analysisResult?.xml_stats || null;
     const apps: AppSummary[] = analysisResult?.apps || [];
     const partitions: string[] = analysisResult?.partitions || [];
-    const diagFiles: string[] = analysisResult?.diag_files || [];
+    const provisionedModules: { module: string; name: string; level: string; cpu_ratio: string; memory_ratio: string }[] = analysisResult?.provisioned_modules || [];
+    const dbVariables = xmlStats?.db_variables || [];
+    const cmRedundancy: { devices: any[]; device_groups: any[]; traffic_groups: any[] } | null = analysisResult?.cm_redundancy || null;
+    const hasCm = !!cmRedundancy && (cmRedundancy.devices.length > 0 || cmRedundancy.device_groups.length > 0);
 
     const appsByPartition = useMemo(() => {
         const out: Record<string, AppSummary[]> = {};
@@ -999,9 +1186,29 @@ export default function QKViewPage() {
 
                         {/* Known Issues Card */}
                         <div className="p-6 flex flex-col bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 max-h-[500px] overflow-y-auto">
-                            <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
-                                <Bug className="w-5 h-5 text-red-500" /> Known Issues Detected
-                            </h3>
+                            <div className="flex items-center justify-between mb-4 gap-2">
+                                <h3 className="font-semibold text-lg flex items-center gap-2">
+                                    <Bug className="w-5 h-5 text-red-500" /> Known Issues Detected
+                                </h3>
+                                {analysisId !== null && analysisResult.findings && analysisResult.findings.length > 0 && (
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <a
+                                            href={`/api/qkview/${analysisId}/export?format=csv`}
+                                            download={`findings_${analysisId}.csv`}
+                                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+                                        >
+                                            <Download className="w-3.5 h-3.5" /> CSV
+                                        </a>
+                                        <a
+                                            href={`/api/qkview/${analysisId}/export?format=json`}
+                                            download={`findings_${analysisId}.json`}
+                                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600"
+                                        >
+                                            <Download className="w-3.5 h-3.5" /> JSON
+                                        </a>
+                                    </div>
+                                )}
+                            </div>
                             {analysisResult.findings && analysisResult.findings.length > 0 ? (
                                 <div className="space-y-4">
                                     {analysisResult.findings.map((finding: any, idx: number) => (
@@ -1034,6 +1241,91 @@ export default function QKViewPage() {
                         staticEntries={analysisResult.entries || []}
                         entryCount={analysisResult.entry_count || 0}
                     />
+
+                    {/* Provisioned Modules + Redundancy (TMOS) */}
+                    {!isF5OS && (provisionedModules.length > 0 || hasCm) && (
+                        <div className="grid md:grid-cols-2 gap-6">
+                            {provisionedModules.length > 0 && (
+                                <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                                    <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+                                        <Layers className="w-5 h-5 text-violet-500" /> Provisioned Modules ({provisionedModules.length})
+                                    </h3>
+                                    <ul className="divide-y divide-slate-100 dark:divide-slate-700 text-sm">
+                                        {provisionedModules.map((m) => {
+                                            const tone = m.level === 'dedicated'
+                                                ? 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200'
+                                                : m.level === 'none'
+                                                    ? 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                                                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200';
+                                            return (
+                                                <li key={m.module} className="py-2 flex items-center justify-between gap-3">
+                                                    <span>
+                                                        <span className="font-mono text-xs uppercase text-slate-500 mr-2">{m.module}</span>
+                                                        <span className="text-slate-800 dark:text-slate-200">{m.name}</span>
+                                                    </span>
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${tone}`}>{m.level}</span>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                </div>
+                            )}
+                            {hasCm && cmRedundancy && (
+                                <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+                                    <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+                                        <Server className="w-5 h-5 text-blue-500" /> Redundancy (Device Trust)
+                                    </h3>
+                                    {cmRedundancy.devices.length > 0 && (
+                                        <div className="mb-4">
+                                            <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Devices</p>
+                                            <ul className="space-y-1 text-sm">
+                                                {cmRedundancy.devices.map((d: any) => (
+                                                    <li key={d.full_name} className="flex items-center justify-between gap-3">
+                                                        <span className="font-mono text-slate-800 dark:text-slate-200 break-all">{d.name}</span>
+                                                        <span className="flex items-center gap-2 shrink-0">
+                                                            {d.management_ip && <span className="font-mono text-xs text-slate-500">{d.management_ip}</span>}
+                                                            {d.self_device && <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">this device</span>}
+                                                        </span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {cmRedundancy.device_groups.length > 0 && (
+                                        <div className="mb-4">
+                                            <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Device Groups</p>
+                                            <ul className="space-y-1 text-sm">
+                                                {cmRedundancy.device_groups.map((g: any) => (
+                                                    <li key={g.name} className="flex items-center justify-between gap-3">
+                                                        <span className="text-slate-800 dark:text-slate-200">{g.name} <span className="text-xs text-slate-500">({g.devices.length} members)</span></span>
+                                                        <span className="font-mono text-xs text-slate-500 shrink-0">{g.type}{g.auto_sync ? ` · auto-sync ${g.auto_sync}` : ''}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {cmRedundancy.traffic_groups.length > 0 && (
+                                        <div>
+                                            <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Traffic Groups</p>
+                                            <ul className="space-y-1 text-sm">
+                                                {cmRedundancy.traffic_groups.map((t: any) => (
+                                                    <li key={t.name} className="flex items-center justify-between gap-3">
+                                                        <span className="text-slate-800 dark:text-slate-200">{t.name}</span>
+                                                        <span className="font-mono text-xs text-slate-500 shrink-0 truncate max-w-[16rem]" title={t.ha_order.join(' → ')}>{t.ha_order.join(' → ') || '—'}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Database Variables (TMOS, from mcp_module.xml) */}
+                    {!isF5OS && dbVariables.length > 0 && (
+                        <DbVariablesCard vars={dbVariables} />
+                    )}
 
                     {/* F5OS Configuration Totals (portgroup modes, tenant counts / cluster nodes, appliance-mode) */}
                     {isF5OS && f5osOverview && (
@@ -1583,18 +1875,9 @@ export default function QKViewPage() {
                         </div>
                     )}
 
-                    {/* Diag files list (TMOS) */}
-                    {diagFiles.length > 0 && (
-                        <div className="p-6 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-                            <h3 className="font-semibold text-lg mb-3 flex items-center gap-2">
-                                <File className="w-5 h-5 text-slate-500" /> Diag Dumps ({diagFiles.length})
-                            </h3>
-                            <ul className="flex flex-wrap gap-2 text-xs font-mono">
-                                {diagFiles.map((n) => (
-                                    <li key={n} className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">{n}</li>
-                                ))}
-                            </ul>
-                        </div>
+                    {/* Raw archive file explorer (config, diagnostic dumps, command outputs) */}
+                    {analysisId !== null && (
+                        <FileExplorer analysisId={analysisId} />
                     )}
 
                 </div>

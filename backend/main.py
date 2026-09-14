@@ -65,7 +65,13 @@ def _reclaim_memory():
 from qkview_analyzer.extractor import extract_qkview
 from qkview_analyzer.parser import parse_all_logs, parse_f5os_event_log
 from qkview_analyzer.indexer import LogIndexer
-from qkview_analyzer.config_parser import parse_bigip_conf, parse_bigip_base_conf, BigIPConfig
+from qkview_analyzer.config_parser import (
+    parse_bigip_conf,
+    parse_bigip_base_conf,
+    parse_sys_provision,
+    parse_cm_redundancy,
+    BigIPConfig,
+)
 from qkview_analyzer.rule_engine import RuleEngine, Finding
 from qkview_analyzer.reporter import Reporter
 from qkview_analyzer.tmos_config import (
@@ -184,6 +190,19 @@ def init_db():
             filename TEXT NOT NULL,
             analysis_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             summary JSON NOT NULL
+        )
+    ''')
+    # Captured text artifacts (config files, var/tmp daemon dumps, F5OS command
+    # outputs) for the raw archive file explorer. Kept out of the summary blob
+    # so the analyze stream stays lean; served lazily by the /files endpoints.
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS analysis_files (
+            analysis_id INTEGER NOT NULL,
+            path TEXT NOT NULL,
+            category TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            PRIMARY KEY (analysis_id, path)
         )
     ''')
     conn.commit()
@@ -378,7 +397,19 @@ async def analyze_qkview(request: Request):
                 summary_dict["tmos_config"] = tmos_tree
                 summary_dict["partitions"] = list_partitions(tmos_tree)
                 summary_dict["apps"] = app_summary(tmos_tree)
-                json_str = json.dumps(summary_dict, default=str)
+
+            # TMOS-config-derived inventories: provisioned modules and CM
+            # redundancy topology. Parsed from the already captured
+            # bigip_base.conf so no archive re-read is needed. (DB variables
+            # come from mcp_module.xml via xml_stats, not config.)
+            if not is_f5os:
+                base_conf = data.config_files.get("config/bigip_base.conf", "")
+                if base_conf:
+                    summary_dict["provisioned_modules"] = parse_sys_provision(base_conf)
+                    summary_dict["cm_redundancy"] = parse_cm_redundancy(base_conf)
+
+            # Re-serialize for persistence so all injected keys land in SQLite.
+            json_str = json.dumps(summary_dict, default=str)
 
             # sqlite3.Connection's context manager commits but does not close
             # the connection — explicit close keeps per-request connections
@@ -390,6 +421,8 @@ async def analyze_qkview(request: Request):
                     (filename, json_str)
                 )
                 analysis_id = cursor.lastrowid
+                conn.commit()
+                _persist_analysis_files(conn, analysis_id, data)
                 conn.commit()
             finally:
                 conn.close()
@@ -494,6 +527,43 @@ async def analyze_qkview(request: Request):
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
 
+# Per-file cap for the raw archive explorer. Daemon dumps (mcpd.out etc.) can
+# be large; cap each stored artifact so a pathological dump can't bloat the DB.
+_MAX_STORED_FILE_BYTES = 8 * 1024 * 1024
+
+
+def _persist_analysis_files(conn: sqlite3.Connection, analysis_id: int, data) -> None:
+    """Store captured text artifacts for the raw archive file explorer.
+
+    Covers TMOS config files, var/tmp daemon/diagnostic dumps, and F5OS
+    manifest-driven command outputs — everything already held as text on
+    ``QKViewData``. Binary tmstat blobs are skipped.
+    """
+    rows: list[tuple] = []
+
+    def _add(path: str, category: str, content: str) -> None:
+        if not isinstance(content, str) or not content:
+            return
+        encoded = content
+        if len(encoded.encode("utf-8", "replace")) > _MAX_STORED_FILE_BYTES:
+            encoded = encoded[:_MAX_STORED_FILE_BYTES] + "\n…[truncated]"
+        rows.append((analysis_id, path, category, len(encoded), encoded))
+
+    for path, content in getattr(data, "config_files", {}).items():
+        _add(path, "config", content)
+    for path, content in getattr(data, "diag_files", {}).items():
+        _add(path, "diagnostic", content)
+    for name, content in getattr(data, "f5os_commands", {}).items():
+        _add(f"commands/{name}", "command", content)
+
+    if rows:
+        conn.executemany(
+            "INSERT OR REPLACE INTO analysis_files "
+            "(analysis_id, path, category, size, content) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+
 def _load_summary(analysis_id: int) -> dict:
     """Fetch a stored analysis summary JSON blob from SQLite."""
     with sqlite3.connect(DB_PATH) as conn:
@@ -538,6 +608,89 @@ async def qkview_app_details(analysis_id: int, full_path: str):
     if details is None:
         raise HTTPException(status_code=404, detail=f"App not found: {full_path}")
     return {"analysis_id": analysis_id, "app": details}
+
+
+# ---------------------------------------------------------------------------
+# Raw archive file explorer (captured text artifacts)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/qkview/{analysis_id}/files")
+async def list_qkview_files(analysis_id: int):
+    """List the captured text artifacts available for a stored analysis."""
+    with sqlite3.connect(DB_PATH) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM analyses WHERE id = ?", (analysis_id,)
+        ).fetchone()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+        rows = conn.execute(
+            "SELECT path, category, size FROM analysis_files "
+            "WHERE analysis_id = ? ORDER BY category, path",
+            (analysis_id,),
+        ).fetchall()
+    return {
+        "analysis_id": analysis_id,
+        "files": [{"path": r[0], "category": r[1], "size": r[2]} for r in rows],
+    }
+
+
+@app.get("/api/qkview/{analysis_id}/files/{file_path:path}")
+async def get_qkview_file(analysis_id: int, file_path: str):
+    """Return the raw text of one captured artifact (inline, for viewing)."""
+    from fastapi.responses import PlainTextResponse
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT content FROM analysis_files WHERE analysis_id = ? AND path = ?",
+            (analysis_id, file_path),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return PlainTextResponse(row[0])
+
+
+# ---------------------------------------------------------------------------
+# Findings export (JSON / CSV for support cases)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/qkview/{analysis_id}/export")
+async def export_findings(analysis_id: int, format: str = Query("json")):
+    """Export the analysis findings + device info for attaching to SR cases."""
+    summary = _load_summary(analysis_id)
+    device = summary.get("device_info", {})
+    findings = summary.get("findings", [])
+    fmt = (format or "json").lower()
+
+    if fmt == "json":
+        from fastapi.responses import JSONResponse
+        payload = {"device_info": device, "findings": findings}
+        return JSONResponse(
+            payload,
+            headers={
+                "Content-Disposition": f'attachment; filename="findings_{analysis_id}.json"'
+            },
+        )
+
+    if fmt == "csv":
+        from fastapi.responses import PlainTextResponse
+        import csv
+        import io
+        buf = io.StringIO()
+        cols = ["severity", "category", "rule_name", "count",
+                "first_seen", "last_seen", "recommendation"]
+        writer = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+        writer.writeheader()
+        for f in findings:
+            if isinstance(f, dict):
+                writer.writerow({c: f.get(c, "") for c in cols})
+        return PlainTextResponse(
+            buf.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="findings_{analysis_id}.csv"'
+            },
+        )
+
+    raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
 
 
 # ---------------------------------------------------------------------------
