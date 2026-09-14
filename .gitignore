@@ -21,6 +21,12 @@ node_modules/
 out/
 .turbo/
 next-env.d.ts.bak
+# Pre-edit backups (the operating standard says back a file up before editing
+# it). Suffixed forms too: `rt sync --write` writes TODO.md.bak-rtsync-<ts> on
+# every run, and a CLAUDE.md.bak-rt203 reached a commit here before this rule.
+*.bak
+*.bak2
+*.bak-*
 *.tsbuildinfo
 
 # Runtime data — real customer QKView archives, DBs, local test inputs
