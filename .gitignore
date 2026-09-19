@@ -64,3 +64,11 @@ Thumbs.db
 !.env.example
 *.pem
 *.key
+
+# HAR scrub helper (scripts/har_scrub.py, RT#38): the real-pattern note and the
+# real→synthetic map both contain the customer strings the scrub removes.
+.har_scrub_patterns.txt
+.har_scrub_map.json
+
+# Session/agent command log (operating rule: append commands as executed)
+history

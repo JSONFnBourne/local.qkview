@@ -3,6 +3,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings, Search, Download, Database, Layers, FileText } from 'lucide-react';
 import LogsSearchTile from '../components/LogsSearchTile';
+import RecentAnalyses from '../components/RecentAnalyses';
 
 type AppSummary = {
     name: string;
@@ -1882,6 +1883,11 @@ export default function QKViewPage() {
 
                 </div>
             )}
+
+            {/* Persisted analyses with per-row delete (RT#36). Shown on the
+                landing state and under a result; the open analysis is marked
+                and cannot be deleted from under itself. */}
+            <RecentAnalyses refreshKey={analysisId} currentId={analysisId} />
         </div>
     );
 }

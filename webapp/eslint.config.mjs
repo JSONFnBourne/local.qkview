@@ -15,14 +15,19 @@
 // Both already carry ignores for .next/**, out/**, build/** and next-env.d.ts —
 // do not duplicate those here.
 //
-// NOT YET RUN: blackbriar has no node runtime (no nvm/volta/fnm, no apt nodejs,
-// nothing on PATH), so this config is written from the installed packages'
-// verified export shapes but has never been executed. RT#41 stays OPEN until
-// `npm run lint` passes once on a machine with node.
+// VERIFIED 2026-09-18 on a host with node 22 (outcome) after a fresh `npm ci`:
+// `npm run lint` executes, loads this config, and reports real findings in
+// app/ (tracked separately). Note that a node_modules tree whose .bin/ entries
+// have been flattened from symlinks into plain files (the 2026-07 copy on
+// blackbriar) makes `npm run lint` fall through to whatever `eslint` is on
+// PATH — on outcome that was a global ESLint 6, which cannot read flat config
+// and reports "couldn't find a configuration file". A fresh install fixes it.
 import nextCoreWebVitals from 'eslint-config-next/core-web-vitals'
 import nextTypeScript from 'eslint-config-next/typescript'
 
-export default [
+const config = [
   ...nextCoreWebVitals,
   ...nextTypeScript,
 ]
+
+export default config

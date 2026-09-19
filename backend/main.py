@@ -93,8 +93,10 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Filename"],
 )
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "local_qkview.db")
-LOGS_DB_DIR = os.path.join(os.path.dirname(__file__), "logs_db")
+# Overridable so a profiling run or a test can point the backend at a
+# throwaway store instead of the operator's real analyses (RT#36/RT#39).
+DB_PATH = os.environ.get("QKVIEW_DB_PATH") or os.path.join(os.path.dirname(__file__), "local_qkview.db")
+LOGS_DB_DIR = os.environ.get("QKVIEW_LOGS_DB_DIR") or os.path.join(os.path.dirname(__file__), "logs_db")
 os.makedirs(LOGS_DB_DIR, exist_ok=True)
 
 
@@ -576,6 +578,95 @@ def _load_summary(analysis_id: int) -> dict:
         return json.loads(row[0])
     except (TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=500, detail="Corrupt analysis summary") from exc
+
+
+def _list_analyses(db_path: str = None, logs_dir: str = None) -> list:
+    """Every persisted analysis, newest first, with the size of its on-disk
+    log index (0 when the index is missing — e.g. analysed before Session 4
+    or already swept)."""
+    db_path = db_path or DB_PATH
+    logs_dir = logs_dir or LOGS_DB_DIR
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, filename, analysis_date, length(summary) FROM analyses ORDER BY id DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for aid, filename, date, summary_bytes in rows:
+        logs_path = os.path.join(logs_dir, f"logs_{aid}.db")
+        try:
+            logs_bytes = os.path.getsize(logs_path)
+        except OSError:
+            logs_bytes = 0
+        out.append({
+            "id": aid,
+            "filename": filename,
+            "analysis_date": date,
+            "summary_bytes": summary_bytes,
+            "logs_db_bytes": logs_bytes,
+        })
+    return out
+
+
+def _delete_analysis(analysis_id: int, db_path: str = None, logs_dir: str = None) -> Optional[dict]:
+    """Remove one analysis completely: its `analyses` row, its captured
+    `analysis_files` rows, and its `logs_<id>.db` index. Returns None when no
+    such analysis exists.
+
+    Order matters: the DB rows go first and are committed before the file is
+    unlinked, so a crash between the two leaves an ORPHAN index — which the
+    startup sweep (`_sweep_orphan_logs_db`) already reclaims — rather than a
+    row whose index is gone, which would 404 every log search for it."""
+    db_path = db_path or DB_PATH
+    logs_dir = logs_dir or LOGS_DB_DIR
+    conn = sqlite3.connect(db_path)
+    try:
+        exists = conn.execute("SELECT 1 FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+        if not exists:
+            return None
+        files_deleted = conn.execute(
+            "DELETE FROM analysis_files WHERE analysis_id = ?", (analysis_id,)
+        ).rowcount
+        conn.execute("DELETE FROM analyses WHERE id = ?", (analysis_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    logs_path = os.path.join(logs_dir, f"logs_{analysis_id}.db")
+    logs_bytes = 0
+    logs_removed = False
+    try:
+        logs_bytes = os.path.getsize(logs_path)
+        os.remove(logs_path)
+        logs_removed = True
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.exception("analysis %s deleted from DB but its log index could not be removed", analysis_id)
+    return {
+        "id": analysis_id,
+        "analysis_files_deleted": files_deleted,
+        "logs_db_removed": logs_removed,
+        "logs_db_bytes_reclaimed": logs_bytes if logs_removed else 0,
+    }
+
+
+@app.get("/api/qkview")
+def list_analyses():
+    """Persisted analyses, newest first — the rows the delete action acts on."""
+    return {"analyses": _list_analyses()}
+
+
+@app.delete("/api/qkview/{analysis_id}")
+def delete_analysis(analysis_id: int):
+    """Per-row delete (RT#36): the `analyses` row, its captured files and its
+    `logs_<id>.db` go together, so nothing is left for the orphan sweep."""
+    result = _delete_analysis(analysis_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return result
 
 
 @app.get("/api/qkview/{analysis_id}/apps")

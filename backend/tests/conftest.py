@@ -1,13 +1,25 @@
 """Shared fixtures for the qkview-analyzer test suite.
 
-These tests run against real F5OS qkview archives shipped in
-``F5/data/qkview/``. Extracting and analyzing one archive takes 10s–2m, so
-the fixtures are session-scoped: each archive is loaded exactly once per
-test session and reused across every assertion.
+These tests run against real qkview archives. Extracting and analyzing one
+archive takes 10s–2m, so the fixtures are session-scoped: each archive is
+loaded exactly once per test session and reused across every assertion.
 
 If the archives are missing (CI / fresh checkout), the tests that depend on
 them are skipped — there's no way to fabricate a representative F5OS
 qkview, and we don't want to commit 1.5 GB of binary fixtures to git.
+
+WHERE THE ARCHIVES ARE LOOKED FOR (first existing directory wins):
+
+  1. ``$QKVIEW_FIXTURE_DIR`` if set
+  2. ``backend/tests/fixtures/``   — what CLAUDE.md documents
+  3. ``<repo>/qkview/``            — where this checkout actually keeps them
+  4. ``<repo>/data/qkview/``       — the parent project's layout, which this
+                                     file inherited and which never existed
+                                     in the fork
+
+Until 2026-09-18 only (4) was consulted, so the 31 integration tests had
+been SKIPPED on every run of this fork while the docs called that expected.
+With the archives reachable the full suite is 60 passed in ~75 s.
 """
 
 from __future__ import annotations
@@ -26,7 +38,17 @@ if str(_REPO_ROOT) not in sys.path:
 
 from qkview_analyzer.extractor import QKViewData, extract_qkview  # noqa: E402
 
-_QKVIEW_DIR = Path(__file__).resolve().parents[2] / "data" / "qkview"
+_REPO = Path(__file__).resolve().parents[2]
+_FIXTURE_CANDIDATES = [
+    Path(os.environ["QKVIEW_FIXTURE_DIR"]) if os.environ.get("QKVIEW_FIXTURE_DIR") else None,
+    Path(__file__).resolve().parent / "fixtures",
+    _REPO / "qkview",
+    _REPO / "data" / "qkview",
+]
+_QKVIEW_DIR = next(
+    (p for p in _FIXTURE_CANDIDATES if p is not None and p.is_dir()),
+    _REPO / "data" / "qkview",
+)
 
 # Map a short fixture name → archive filename. The names are stable; the
 # files change as the user collects fresh qkviews.

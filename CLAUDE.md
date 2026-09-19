@@ -48,11 +48,13 @@ Defaults are 3001/8001 to coexist with the parent `f5.assistant` systemd service
 source .venv/bin/activate
 cd backend && pytest
 
-# Frontend
-cd webapp && npm run lint
+# Frontend — needs node >= 20.9; blackbriar has NO node runtime, run it on outcome
+cd webapp && npm run lint        # `eslint .` with webapp/eslint.config.mjs (RT#41); `next lint` was REMOVED in Next.js 16
 ```
 
-The test suite is 25 unit tests + 31 integration tests that are skipped unless real QKView archive fixtures are present at `backend/tests/fixtures/` (`tmos_ve.qkview`, `rSeries.tar`, `partition.tar`, `syscon.tar`). Skipped fixtures are expected; do not mark them xfail or delete them.
+Extra scripts under `scripts/`: `har_scrub.py` (RT#38 — rewrites customer hostnames / addresses / literal patterns out of a browser HAR so it can be shared; the pattern note and the map it writes are gitignored) and `profile_analyze.py` (RT#39 — per-stage timing of the analyze pipeline, in-process or against a running backend). `QKVIEW_DB_PATH` / `QKVIEW_LOGS_DB_DIR` point the backend at a throwaway store for such runs.
+
+The test suite is 29 unit tests + 31 integration tests + the RT#36/RT#38 unit tests (80 total, ~75 s). The integration tests need the real archives `tmos_ve.qkview`, `rSeries.tar`, `partition.tar`, `syscon.tar`; `backend/tests/conftest.py` looks for them in `$QKVIEW_FIXTURE_DIR`, then `backend/tests/fixtures/`, then `<repo>/qkview/` (where this checkout keeps them), then the legacy `data/qkview/`. **Until 2026-09-18 only the legacy path was consulted and it never existed in the fork, so every run reported 31 skips and this file called that expected (RT#335).** A skip and a pass look the same in a green run: if you see `31 skipped`, the archives are NOT being found — fix the path, do not accept the skip. Genuinely missing archives (CI, fresh clone) still skip; do not mark those xfail or delete them.
 
 ## Architecture — the non-obvious parts
 
