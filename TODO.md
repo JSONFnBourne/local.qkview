@@ -13,9 +13,9 @@ an `RT#n` is a stable reference for the maintainer rather than a link you can fo
 ## At a glance (generated — edit the ticket, not this block)
 
 <!-- rt-sync:begin -->
-_5 open in RT, rendered 2026-09-18 by `rt sync` — edit the ticket, not this line._
+_2 open in RT, rendered 2026-09-19 by `rt sync` — edit the ticket, not this line._
 
-🟠 **RT#35** (Session 7) Decide whether VELOS *controller* archives should show an _aggregated_ chassis-wide tenant inventory synthesized from the partition subpac · 🟡 **RT#36** (Session 4) Add a *UI-driven* delete for backend/logs_db/ — a per-row delete action that wipes both the analyses row and the matching logs_<id>.db · 🟡 **RT#37** (Session 1) Audit v1_localhost.har, v2_localhost.har, v3_localhost.har for embedded customer PII the same way v4_localhost.har was reviewed — confirm · 🟡 **RT#334** webapp: npm run lint reports 28 errors / 5 warnings now that the script runs (RT#41) · 🔵 **RT#336** blackbriar checkout: .venv and webapp/node_modules are non-executable copies, not installs
+🟠 **RT#338** RT#203's 'zero hits' archive clearance is false: every archive is gzip-compressed and three are the same customer's · 🟡 **RT#37** (Session 1) Audit v1_localhost.har, v2_localhost.har, v3_localhost.har for embedded customer PII the same way v4_localhost.har was reviewed — confirm
 <!-- rt-sync:end -->
 
 ## High
