@@ -368,6 +368,24 @@ class Reporter:
                     "portgroups": [
                         {"id": p.id, "mode": p.mode} for p in ov.portgroups
                     ],
+                    "partitions": [
+                        {
+                            "name": p.name,
+                            "id": p.id,
+                            "blade_os_version": p.blade_os_version,
+                            "service_version": p.service_version,
+                            "controllers": [
+                                {
+                                    "controller": c.controller,
+                                    "partition_status": c.partition_status,
+                                    "running_service_version": c.running_service_version,
+                                    "status_age": c.status_age,
+                                }
+                                for c in p.controllers
+                            ],
+                        }
+                        for p in ov.partitions
+                    ],
                     "tenants": [
                         {
                             "name": t.name,

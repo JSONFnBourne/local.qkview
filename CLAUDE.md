@@ -52,7 +52,9 @@ cd backend && pytest
 cd webapp && npm run lint        # `eslint .` with webapp/eslint.config.mjs (RT#41); `next lint` was REMOVED in Next.js 16
 ```
 
-Extra scripts under `scripts/`: `har_scrub.py` (RT#38 — rewrites customer hostnames / addresses / literal patterns out of a browser HAR so it can be shared; the pattern note and the map it writes are gitignored) and `profile_analyze.py` (RT#39 — per-stage timing of the analyze pipeline, in-process or against a running backend). `QKVIEW_DB_PATH` / `QKVIEW_LOGS_DB_DIR` point the backend at a throwaway store for such runs.
+Extra scripts under `scripts/`: `har_scrub.py` (RT#38 — rewrites customer hostnames / addresses / literal patterns out of a browser HAR so it can be shared; the pattern note and the map it writes are gitignored), `profile_analyze.py` (RT#39 — per-stage timing of the analyze pipeline, in-process or against a running backend) and `browser_smoke.mjs` (end-to-end UI check: uploads an archive through the real file input, asserts a section rendered, then exercises the per-row delete. Drives Chrome over the DevTools Protocol with node 22's built-in WebSocket, so it adds **no** dependency to `package.json` — it needs only a Chromium binary via `--chrome`. Its assertions use `textContent`, never `innerText`, because `innerText` returns text after CSS `text-transform` and a `uppercase` label will not match its own source string). `QKVIEW_DB_PATH` / `QKVIEW_LOGS_DB_DIR` point the backend at a throwaway store for such runs.
+
+**Do not run the browser smoke against a customer archive on a remote host** — the analysis, its on-disk log index and any screenshot all carry that archive's contents. Three of the archives in `qkview/` are customer material (RT#338).
 
 The test suite is 29 unit tests + 31 integration tests + the RT#36/RT#38 unit tests (80 total, ~75 s). The integration tests need the real archives `tmos_ve.qkview`, `rSeries.tar`, `partition.tar`, `syscon.tar`; `backend/tests/conftest.py` looks for them in `$QKVIEW_FIXTURE_DIR`, then `backend/tests/fixtures/`, then `<repo>/qkview/` (where this checkout keeps them), then the legacy `data/qkview/`. **Until 2026-09-18 only the legacy path was consulted and it never existed in the fork, so every run reported 31 skips and this file called that expected (RT#335).** A skip and a pass look the same in a green run: if you see `31 skipped`, the archives are NOT being found — fix the path, do not accept the skip. Genuinely missing archives (CI, fresh clone) still skip; do not mark those xfail or delete them.
 
@@ -167,12 +169,25 @@ The origin remote will be a public transmission boundary. Anything committed and
 - PII: real email addresses other than F5 corporate (`*@f5.com`) or RFC/doc synthetic examples; customer names; customer device hostnames; serial numbers.
 - **Real QKView archives or anything extracted from one.** Customer config, pool-member IPs, cert CNs — all of it stays local. The `.gitignore` excludes `*.qkview`, `*.tgz`, `*.tar.gz` and `backend/local_qkview.db*` for this reason.
 
-  **`qkview/` on this host held a REAL PRODUCTION CUSTOMER device until
-  2026-09-14 (RT#203).** It was removed by operator ruling once the support case
-  closed; the seven remaining archives were re-swept for the domain that
-  identified it, with zero hits. That is one domain string and not a general
-  clearance — two of the remaining archives have no established provenance and
-  should be treated as unknown, not as lab.
+  **`qkview/` on this host holds REAL PRODUCTION CUSTOMER DEVICES.** `vCMP.tgz`
+  was removed by operator ruling on 2026-09-14 once its support case closed
+  (RT#203) — but **that ticket's closing statement, that the seven remaining
+  archives were re-swept for the customer domain "with zero hits", is FALSE and
+  the reason is instructive (RT#338, 2026-09-19).** Every archive here is
+  **gzip-compressed**, including the three named `.tar`, so a grep over the
+  container bytes returns 0 for any string whatsoever. Decompressed
+  (`tar xzf <archive> -O | grep -c`), the same domain appears **3,474,104 times
+  in `partition.tar`, 1,964,106 in `syscon.tar` and 1,212,538 in `rSeries.tar`**
+  — all three F5OS archives are the same customer's chassis. The four TMOS
+  `.qkview` files return 0 by the corrected method.
+
+  Two consequences. **Never sweep these archives without decompressing**, and
+  record the command alongside the result: "we grepped and found nothing" and
+  "we could not read it" produced identical output here for five days. And
+  **nothing derived from an archive — hostnames, partition names, pool members,
+  cert CNs — may reach a commit**, because the origin is public; the customer's
+  partition name did reach it (`parser.py`, `test_parser.py`) and is tracked on
+  RT#338.
 
   That directory is itself gitignored (`.gitignore:38`, `/qkview/`), so it
   carries its own uncommitted `README.md` recording what each archive is —

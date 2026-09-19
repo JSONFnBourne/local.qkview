@@ -35,7 +35,10 @@ export async function POST(req: NextRequest) {
         const backendRes = await fetch(`${BACKEND_URL}/api/analyze`, {
             method: 'POST',
             headers: forwardHeaders,
-            body: req.body as any,
+            // ReadableStream bodies need `duplex: half`, which the DOM
+            // RequestInit type does not model — hence the cast on the whole
+            // object below. BodyInit keeps the body itself typed.
+            body: req.body as unknown as BodyInit,
             duplex: 'half',
         } as RequestInit);
 
@@ -57,7 +60,7 @@ export async function POST(req: NextRequest) {
             },
         });
 
-    } catch (err: any) {
+    } catch (err) {
         console.error("Proxy error in /api/analyze:", err);
         return NextResponse.json({ error: 'Internal proxy error' }, { status: 500 });
     }

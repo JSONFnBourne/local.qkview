@@ -74,6 +74,35 @@ class F5OSClusterNode:
 
 
 @dataclass
+class F5OSPartitionController:
+    """One CONTROLLER row of `show partitions`.
+
+    A partition backed by an HA pair prints one of these per controller, and
+    the partition-level columns are blank on the continuation row.
+    """
+    controller: str = ""
+    partition_status: str = ""        # "running-active" | "running-standby" | ...
+    running_service_version: str = ""
+    status_age: str = ""              # "83d"
+
+
+@dataclass
+class F5OSPartition:
+    """One partition from `show partitions` — the VELOS chassis inventory.
+
+    This is the chassis-wide view a VELOS *controller* qkview can actually
+    answer. A controller archive carries no `show tenants` output at all
+    (measured across all 182 subpackage manifests of a syscon archive), so
+    tenant inventory requires the partition archive — see RT#35.
+    """
+    name: str = ""
+    id: str = ""
+    blade_os_version: str = ""
+    service_version: str = ""
+    controllers: list[F5OSPartitionController] = field(default_factory=list)
+
+
+@dataclass
 class F5OSPortgroup:
     """One row of iHealth's "Portgroup Modes in Use"."""
     id: str = ""              # "1", "2", ...
@@ -138,6 +167,9 @@ class F5OSOverview:
     tenants_provisioned: int = 0
     tenants_deployed: int = 0
     tenants_running: int = 0
+    # Chassis-wide partition inventory (VELOS). Present on controller AND
+    # partition archives; empty on rSeries, which has no partitions.
+    partitions: list[F5OSPartition] = field(default_factory=list)
 
 
 @dataclass
@@ -1100,6 +1132,86 @@ def _parse_f5os_cluster(content: str) -> tuple[list[F5OSClusterNode], str]:
     return nodes, summary
 
 
+# `show partitions` prints a fixed-width table whose header wraps over three
+# lines; only the LAST header line carries one token per column, so the column
+# offsets are taken from it. They cannot be taken from the `---` rule beneath
+# it: that rule is one unbroken run of dashes with no per-column segments.
+#
+#                                                      RUNNING
+#               BLADE OS     SERVICE                   PARTITION        SERVICE      STATUS
+#     NAME  ID  VERSION      VERSION      CONTROLLER   STATUS           VERSION      AGE
+#     ---------------------------------------------------------------------------------
+#     alpha 1   1.8.2-28311  1.8.2-28311  1            running-active   1.8.2-28311  83d
+#                                         2            running-standby  1.8.2-28311  83d
+#
+# (Partition name above is illustrative. Real ones are customer site names and
+#  do not belong in a repository with a public origin — see RT#338.)
+_F5OS_PARTITION_COLUMNS = (
+    "NAME", "ID", "VERSION", "VERSION", "CONTROLLER", "STATUS", "VERSION", "AGE",
+)
+
+
+def _parse_f5os_partitions(content: str) -> list["F5OSPartition"]:
+    """Parse `show partitions` into partitions, each with its controller rows.
+
+    Returns [] rather than guessing whenever the table is not the exact shape
+    this parser was written against — a future F5OS release that adds or
+    reorders a column would otherwise be sliced at stale offsets and produce
+    confident nonsense. An empty list renders no table, which is the honest
+    outcome for "we could not read it".
+    """
+    lines = content.splitlines()
+
+    header_idx = -1
+    for i, raw in enumerate(lines):
+        if tuple(raw.split()) == _F5OS_PARTITION_COLUMNS:
+            header_idx = i
+            break
+    if header_idx < 0:
+        return []
+
+    rule_idx = header_idx + 1
+    while rule_idx < len(lines) and not lines[rule_idx].strip():
+        rule_idx += 1
+    if rule_idx >= len(lines) or set(lines[rule_idx].strip()) != {"-"}:
+        return []
+
+    starts = [m.start() for m in re.finditer(r"\S+", lines[header_idx])]
+    if len(starts) != len(_F5OS_PARTITION_COLUMNS):
+        return []
+
+    def _cell(line: str, k: int) -> str:
+        end = starts[k + 1] if k + 1 < len(starts) else len(line)
+        return line[starts[k]:end].strip()
+
+    out: list[F5OSPartition] = []
+    for raw in lines[rule_idx + 1:]:
+        if not raw.strip():
+            continue
+        name = _cell(raw, 0)
+        if name:
+            out.append(F5OSPartition(
+                name=name,
+                id=_cell(raw, 1),
+                blade_os_version=_cell(raw, 2),
+                service_version=_cell(raw, 3),
+            ))
+        elif not out:
+            # A continuation row before any named partition: the table is not
+            # what we think it is, so do not invent a parent for it.
+            continue
+        ctl = F5OSPartitionController(
+            controller=_cell(raw, 4),
+            partition_status=_cell(raw, 5),
+            running_service_version=_cell(raw, 6),
+            status_age=_cell(raw, 7),
+        )
+        if any((ctl.controller, ctl.partition_status,
+                ctl.running_service_version, ctl.status_age)):
+            out[-1].controllers.append(ctl)
+    return out
+
+
 def _parse_f5os_portgroup_modes(running_config: str) -> list[F5OSPortgroup]:
     """Pull portgroup id + mode out of `show running-config`.
 
@@ -1247,6 +1359,10 @@ def _build_f5os_overview(
     rc = commands.get("show running-config")
     if rc:
         ov.portgroups = _parse_f5os_portgroup_modes(rc)
+
+    pt = commands.get("show partitions")
+    if pt:
+        ov.partitions = _parse_f5os_partitions(pt)
 
     tn = commands.get("show tenants")
     if tn:

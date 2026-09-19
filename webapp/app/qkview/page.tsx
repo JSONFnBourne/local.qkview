@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings, Search, Download, Database, Layers, FileText } from 'lucide-react';
-import LogsSearchTile from '../components/LogsSearchTile';
+import { UploadCloud, File, CheckCircle, AlertTriangle, Bug, Terminal, Network, Cpu, Activity, Folder, ShieldCheck, X, Loader2, ChevronRight, ChevronDown, Copy, Check, Server, Calendar, Settings, Search, Download, Database, Layers, FileText, Info } from 'lucide-react';
+import LogsSearchTile, { type LogEntry } from '../components/LogsSearchTile';
 import RecentAnalyses from '../components/RecentAnalyses';
 
 type AppSummary = {
@@ -32,6 +32,117 @@ type F5OSClusterNode = {
 };
 
 type F5OSPortgroup = { id: string; mode: string };
+
+/** A value out of the backend's TMOS config tree. That tree mirrors
+ *  bigip.conf, whose shape differs per object type, so it is genuinely unknown
+ *  at compile time. `unknown` forces the narrowing these call sites already do
+ *  at runtime — `any` made that narrowing optional and unchecked. */
+type ConfigValue = unknown;
+type ConfigObject = Record<string, ConfigValue>;
+
+function asConfigObject(v: ConfigValue): ConfigObject | null {
+    return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as ConfigObject) : null;
+}
+
+function asConfigString(v: ConfigValue): string {
+    return typeof v === 'string' ? v : '';
+}
+
+function toStringArray(v: ConfigValue): string[] {
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+type FindingRow = {
+    rule_name: string;
+    description?: string;
+    severity: string;
+    sample_entries?: LogEntry[];
+};
+
+// Field-for-field with config_parser.parse_cm_redundancy, which emits every
+// one of these unconditionally — so none is optional, and `self_device` is a
+// bool and `ha_order` a list rather than the strings they look like.
+type CmDevice = {
+    name: string;
+    full_name: string;
+    self_device: boolean;
+    management_ip: string;
+    hostname: string;
+    version: string;
+    marketing_name: string;
+    edition: string;
+    platform_id: string;
+};
+type CmDeviceGroup = {
+    name: string;
+    type: string;
+    auto_sync: string;
+    network_failover: string;
+    devices: string[];
+};
+type CmTrafficGroup = {
+    name: string;
+    ha_order: string[];
+    auto_failback_enabled: string;
+};
+type CmRedundancy = {
+    devices: CmDevice[];
+    device_groups: CmDeviceGroup[];
+    traffic_groups: CmTrafficGroup[];
+};
+
+type DeviceInfo = {
+    hostname?: string;
+    product?: string;
+    platform?: string;
+    version?: string;
+    build?: string;
+    edition?: string;
+    base_mac?: string;
+    cores?: string | number;
+    memory_mb?: string | number;
+    generation_date?: string;
+    f5os_variant?: string;
+};
+
+type ProvisionedModule = {
+    module: string; name: string; level: string; cpu_ratio: string; memory_ratio: string;
+};
+
+/** The `result` payload the analyze stream ends with. Fields are optional
+ *  because the shape differs by platform family (TMOS vs F5OS); the index
+ *  signature carries the rest of the summary this page does not read. */
+type AnalysisResult = {
+    analysis_id?: number;
+    device_info?: DeviceInfo;
+    findings?: FindingRow[];
+    entries?: LogEntry[];
+    entry_count?: number;
+    apps?: AppSummary[];
+    partitions?: string[];
+    provisioned_modules?: ProvisionedModule[];
+    cm_redundancy?: CmRedundancy | null;
+    f5os_commands?: Record<string, string>;
+    f5os_health?: F5OSHealth[];
+    f5os_overview?: F5OSOverview | null;
+    xml_stats?: XmlStatsPayload | null;
+    [key: string]: unknown;
+};
+
+type F5OSPartitionController = {
+    controller: string;
+    partition_status: string;
+    running_service_version: string;
+    status_age: string;
+};
+
+type F5OSPartition = {
+    name: string;
+    id: string;
+    blade_os_version: string;
+    service_version: string;
+    controllers: F5OSPartitionController[];
+};
 
 type F5OSTenant = {
     name: string;
@@ -75,6 +186,7 @@ type F5OSOverview = {
     tenants_provisioned: number;
     tenants_deployed: number;
     tenants_running: number;
+    partitions: F5OSPartition[];
 };
 
 function formatGenerationDate(iso: string): string {
@@ -119,22 +231,24 @@ function AppDetailsPanel({
     fullPath: string;
     loading: boolean;
     error: string | null;
-    details: any;
+    details: ConfigObject | null;
     showRaw: boolean;
     onToggleRaw: () => void;
     onClose: () => void;
 }) {
-    const pool = details?.pool;
-    const poolIsObject = pool && typeof pool === 'object' && !Array.isArray(pool);
-    const members: Record<string, any> = poolIsObject && pool.members && typeof pool.members === 'object' ? pool.members : {};
+    const poolRaw = details?.pool;
+    const pool = asConfigObject(poolRaw);
+    const poolIsObject = pool !== null;
+    const members: ConfigObject = asConfigObject(pool?.members) ?? {};
     const memberNames = Object.keys(members).filter((k) => k !== 'line');
-    const monitors: any[] = poolIsObject && pool.monitor
+    const monitors: ConfigValue[] = pool?.monitor
         ? (Array.isArray(pool.monitor) ? pool.monitor : [pool.monitor])
         : [];
-    const profiles: string[] = Array.isArray(details?.profiles) ? details.profiles : [];
-    const rules: string[] = Array.isArray(details?.rules) ? details.rules : [];
-    const ruleBodies: Record<string, string> = (details?.rule_bodies && typeof details.rule_bodies === 'object') ? details.rule_bodies : {};
-    const lines: string[] = Array.isArray(details?.lines) ? details.lines : [];
+    const profiles: string[] = toStringArray(details?.profiles);
+    const rules: string[] = toStringArray(details?.rules);
+    const ruleBodies: Record<string, string> = (asConfigObject(details?.rule_bodies) ?? {}) as Record<string, string>;
+    const lines: string[] = toStringArray(details?.lines);
+    const destination = asConfigString(details?.destination);
 
     const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
     const [copied, setCopied] = useState(false);
@@ -169,9 +283,10 @@ function AppDetailsPanel({
     // Config-based member status. QKView XML carries no runtime monitor state,
     // so colouring reflects intent in bigip.conf: user-disabled / forced-down
     // vs. default (assumed up). Live availability would need a device-side query.
-    const memberStatus = (m: any): { tone: 'up' | 'disabled' | 'down'; label: string } => {
-        const state = typeof m?.state === 'string' ? m.state : '';
-        const session = typeof m?.session === 'string' ? m.session : '';
+    const memberStatus = (m: ConfigValue): { tone: 'up' | 'disabled' | 'down'; label: string } => {
+        const mo = asConfigObject(m);
+        const state = asConfigString(mo?.state);
+        const session = asConfigString(mo?.session);
         if (state === 'user-down' || state.includes('forced-down')) return { tone: 'down', label: 'forced down' };
         if (session === 'user-disabled' || session.includes('disabled')) return { tone: 'disabled', label: 'disabled' };
         return { tone: 'up', label: 'enabled' };
@@ -182,14 +297,15 @@ function AppDetailsPanel({
         down: 'bg-red-500',
     };
 
-    const renderMonitor = (m: any, i: number) => {
+    const renderMonitor = (m: ConfigValue, i: number) => {
         if (typeof m === 'string') {
             return <li key={i} className="font-mono text-xs">{m}</li>;
         }
-        const keys = Object.keys(m || {}).filter((k) => k !== 'line');
+        const mo = asConfigObject(m) ?? {};
+        const keys = Object.keys(mo).filter((k) => k !== 'line');
         return (
             <li key={i} className="font-mono text-xs">
-                <span className="text-slate-700 dark:text-slate-300">{keys.slice(0, 6).map((k) => `${k}=${typeof m[k] === 'object' ? JSON.stringify(m[k]) : m[k]}`).join('  ')}</span>
+                <span className="text-slate-700 dark:text-slate-300">{keys.slice(0, 6).map((k) => `${k}=${typeof mo[k] === 'object' ? JSON.stringify(mo[k]) : String(mo[k])}`).join('  ')}</span>
             </li>
         );
     };
@@ -202,8 +318,8 @@ function AppDetailsPanel({
                         <Network className="w-4 h-4 text-amber-500" />
                         <span className="font-mono text-sm">{fullPath}</span>
                     </h4>
-                    {details?.destination && (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">destination: {details.destination}</p>
+                    {destination && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">destination: {destination}</p>
                     )}
                 </div>
                 <button
@@ -235,7 +351,7 @@ function AppDetailsPanel({
                             <h5 className="font-semibold text-xs uppercase tracking-wider text-slate-500 mb-2">Pool</h5>
                             {poolIsObject ? (
                                 <div className="font-mono text-xs space-y-1">
-                                    {details.pool && typeof details.pool === 'object' && Object.entries(details.pool)
+                                    {pool && Object.entries(pool)
                                         .filter(([k]) => !['members', 'monitor', 'line'].includes(k))
                                         .slice(0, 8)
                                         .map(([k, v]) => (
@@ -245,8 +361,8 @@ function AppDetailsPanel({
                                             </div>
                                         ))}
                                 </div>
-                            ) : pool ? (
-                                <p className="font-mono text-xs text-slate-600 dark:text-slate-400">{String(pool)} <span className="text-slate-400">(not resolved)</span></p>
+                            ) : poolRaw ? (
+                                <p className="font-mono text-xs text-slate-600 dark:text-slate-400">{String(poolRaw)} <span className="text-slate-400">(not resolved)</span></p>
                             ) : (
                                 <p className="text-xs text-slate-400 italic">No pool attached.</p>
                             )}
@@ -411,14 +527,22 @@ function VirtualizedVSTable({
 
     // Clear any active filter when the underlying app set changes (partition
     // switch or a new upload) so a stale query doesn't hide the new list.
-    useEffect(() => {
+    //
+    // This is React's documented "adjusting state when a prop changes" pattern
+    // rather than an effect. Setting state during render re-renders immediately
+    // and discards the stale pass; the effect it replaces painted the old list
+    // with the new data first and then cascaded a second render to correct it.
+    const [appsSeen, setAppsSeen] = useState(apps);
+    if (apps !== appsSeen) {
+        setAppsSeen(apps);
         setQuery('');
-    }, [apps]);
-
-    // Reset scroll to the top whenever the visible set changes so we never
-    // strand the viewport in the middle of a now-shorter list.
-    useEffect(() => {
         setScrollTop(0);
+    }
+
+    // The DOM scroll offset is an external system, so it does belong in an
+    // effect — resetting it keeps the viewport from being stranded partway
+    // down a now-shorter list.
+    useEffect(() => {
         if (scrollRef.current) scrollRef.current.scrollTop = 0;
     }, [query, apps]);
 
@@ -445,7 +569,10 @@ function VirtualizedVSTable({
                     <input
                         type="text"
                         value={query}
-                        onChange={(e) => setQuery(e.target.value)}
+                        onChange={(e) => {
+                            setQuery(e.target.value);
+                            setScrollTop(0);
+                        }}
                         placeholder="Filter by name, destination, or pool…"
                         className="w-full pl-8 pr-3 py-1.5 text-sm rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
                     />
@@ -708,12 +835,12 @@ export default function QKViewPage() {
     // hung even though the backend is working.
     const [elapsedSec, setElapsedSec] = useState(0);
     const uploadStartRef = useRef<number | null>(null);
-    const [analysisResult, setAnalysisResult] = useState<any>(null);
+    const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [activeCmd, setActiveCmd] = useState<string | null>(null);
     const [activePartition, setActivePartition] = useState<string | null>(null);
     const [selectedAppPath, setSelectedAppPath] = useState<string | null>(null);
-    const [appDetails, setAppDetails] = useState<any>(null);
+    const [appDetails, setAppDetails] = useState<ConfigObject | null>(null);
     const [appDetailsLoading, setAppDetailsLoading] = useState(false);
     const [appDetailsError, setAppDetailsError] = useState<string | null>(null);
     const [showRawStanzas, setShowRawStanzas] = useState(false);
@@ -732,7 +859,6 @@ export default function QKViewPage() {
 
     const rawProduct: string = analysisResult?.device_info?.product || '';
     const isF5OS = rawProduct.startsWith('F5OS');
-    const platformFlavor: string = (analysisResult?.device_info?.platform || '').toLowerCase();
     const f5osVariant: string = analysisResult?.device_info?.f5os_variant || '';
     // PRODUCT.Platform reports "controller" for both VELOS flavors, so we use
     // the backend-computed variant (keyed off subpackage signatures) to drive
@@ -744,11 +870,13 @@ export default function QKViewPage() {
     const f5osHealth: F5OSHealth[] = analysisResult?.f5os_health || [];
     const f5osOverview: F5OSOverview | null = analysisResult?.f5os_overview || null;
     const xmlStats: XmlStatsPayload | null = analysisResult?.xml_stats || null;
-    const apps: AppSummary[] = analysisResult?.apps || [];
+    // Memoised: a bare `|| []` mints a new array every render, which would
+    // re-run every useMemo that depends on it.
+    const apps: AppSummary[] = useMemo(() => analysisResult?.apps || [], [analysisResult]);
     const partitions: string[] = analysisResult?.partitions || [];
     const provisionedModules: { module: string; name: string; level: string; cpu_ratio: string; memory_ratio: string }[] = analysisResult?.provisioned_modules || [];
     const dbVariables = xmlStats?.db_variables || [];
-    const cmRedundancy: { devices: any[]; device_groups: any[]; traffic_groups: any[] } | null = analysisResult?.cm_redundancy || null;
+    const cmRedundancy: CmRedundancy | null = analysisResult?.cm_redundancy || null;
     const hasCm = !!cmRedundancy && (cmRedundancy.devices.length > 0 || cmRedundancy.device_groups.length > 0);
 
     const appsByPartition = useMemo(() => {
@@ -758,8 +886,6 @@ export default function QKViewPage() {
         }
         return out;
     }, [apps]);
-
-    const effectivePartition = activePartition ?? partitions[0] ?? null;
 
     // Sort interfaces for display: real front-panel NICs (1.1, 1.2, …) first,
     // then mgmt, then everything else (internal / HSB). TMOS stat_module.xml
@@ -804,8 +930,8 @@ export default function QKViewPage() {
             if (!res.ok) throw new Error(`Backend returned ${res.status}`);
             const data = await res.json();
             setAppDetails(data.app ?? null);
-        } catch (err: any) {
-            setAppDetailsError(err.message || 'Failed to load app details.');
+        } catch (err) {
+            setAppDetailsError(err instanceof Error ? err.message : 'Failed to load app details.');
         } finally {
             setAppDetailsLoading(false);
         }
@@ -851,7 +977,7 @@ export default function QKViewPage() {
         // body is the raw file (octet-stream) — the server reads bytes directly
         // and gives us back an NDJSON stream of pipeline progress + result.
         try {
-            const finalData = await new Promise<any>((resolve, reject) => {
+            const finalData = await new Promise<AnalysisResult>((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
                 xhr.open('POST', '/api/analyze', true);
                 xhr.setRequestHeader('Content-Type', 'application/octet-stream');
@@ -878,7 +1004,7 @@ export default function QKViewPage() {
                 // fires repeatedly during streaming; each call sees the full
                 // accumulated text, so we only parse what's new.
                 let parsedUpto = 0;
-                let resultPayload: any = null;
+                let resultPayload: AnalysisResult | null = null;
                 let streamError: string | null = null;
 
                 const parseNewLines = () => {
@@ -892,12 +1018,16 @@ export default function QKViewPage() {
                     for (const rawLine of complete.split('\n')) {
                         const line = rawLine.trim();
                         if (!line) continue;
-                        let evt: any;
+                        let evt: { type?: string; msg?: string; data?: AnalysisResult; detail?: string };
                         try { evt = JSON.parse(line); } catch { continue; }
                         if (evt.type === 'progress') {
                             setProgressMsg(evt.msg || '');
                         } else if (evt.type === 'result') {
-                            resultPayload = evt.data;
+                            // `data` is optional on the event type, so a
+                            // malformed result line leaves this null and the
+                            // stream-end check below rejects, rather than
+                            // resolving with undefined.
+                            resultPayload = evt.data ?? null;
                         } else if (evt.type === 'error') {
                             streamError = evt.detail || 'Analysis failed.';
                         }
@@ -937,8 +1067,8 @@ export default function QKViewPage() {
             setActivePartition(null);
             setActiveCmd(null);
             setShowRawStanzas(false);
-        } catch (err: any) {
-            setError(err.message || 'An error occurred during analysis.');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'An error occurred during analysis.');
         } finally {
             setIsUploading(false);
             setProgressMsg('');
@@ -1212,7 +1342,7 @@ export default function QKViewPage() {
                             </div>
                             {analysisResult.findings && analysisResult.findings.length > 0 ? (
                                 <div className="space-y-4">
-                                    {analysisResult.findings.map((finding: any, idx: number) => (
+                                    {analysisResult.findings.map((finding: FindingRow, idx: number) => (
                                         <div key={idx} className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-lg text-sm">
                                             <p className="font-bold text-red-800 dark:text-red-300 mb-1">{finding.rule_name} <span className="text-xs font-normal px-2 py-0.5 ml-2 bg-red-200 dark:bg-red-800 rounded">{finding.severity.toUpperCase()}</span></p>
                                             <p className="text-red-700 dark:text-red-400 mb-3">{finding.description}</p>
@@ -1220,7 +1350,7 @@ export default function QKViewPage() {
                                             {finding.sample_entries && finding.sample_entries.length > 0 && (
                                                 <div className="mt-2 text-xs font-mono bg-white dark:bg-black/40 border border-red-100 dark:border-red-900/50 rounded p-2 overflow-x-auto">
                                                     <p className="text-slate-500 mb-1 font-sans font-semibold">Matched Log Samples:</p>
-                                                    {finding.sample_entries.map((sample: any, sIdx: number) => (
+                                                    {finding.sample_entries.map((sample: LogEntry, sIdx: number) => (
                                                         <div key={sIdx} className="whitespace-pre-wrap text-slate-800 dark:text-slate-300 leading-relaxed mb-1 border-b border-red-100 dark:border-red-900/40 pb-1 last:border-0 last:pb-0">
                                                             <span className="text-slate-400 mr-2">[{sample.timestamp}]</span>
                                                             {sample.raw_line}
@@ -1280,7 +1410,7 @@ export default function QKViewPage() {
                                         <div className="mb-4">
                                             <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Devices</p>
                                             <ul className="space-y-1 text-sm">
-                                                {cmRedundancy.devices.map((d: any) => (
+                                                {cmRedundancy.devices.map((d: CmDevice) => (
                                                     <li key={d.full_name} className="flex items-center justify-between gap-3">
                                                         <span className="font-mono text-slate-800 dark:text-slate-200 break-all">{d.name}</span>
                                                         <span className="flex items-center gap-2 shrink-0">
@@ -1296,7 +1426,7 @@ export default function QKViewPage() {
                                         <div className="mb-4">
                                             <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Device Groups</p>
                                             <ul className="space-y-1 text-sm">
-                                                {cmRedundancy.device_groups.map((g: any) => (
+                                                {cmRedundancy.device_groups.map((g: CmDeviceGroup) => (
                                                     <li key={g.name} className="flex items-center justify-between gap-3">
                                                         <span className="text-slate-800 dark:text-slate-200">{g.name} <span className="text-xs text-slate-500">({g.devices.length} members)</span></span>
                                                         <span className="font-mono text-xs text-slate-500 shrink-0">{g.type}{g.auto_sync ? ` · auto-sync ${g.auto_sync}` : ''}</span>
@@ -1309,7 +1439,7 @@ export default function QKViewPage() {
                                         <div>
                                             <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Traffic Groups</p>
                                             <ul className="space-y-1 text-sm">
-                                                {cmRedundancy.traffic_groups.map((t: any) => (
+                                                {cmRedundancy.traffic_groups.map((t: CmTrafficGroup) => (
                                                     <li key={t.name} className="flex items-center justify-between gap-3">
                                                         <span className="text-slate-800 dark:text-slate-200">{t.name}</span>
                                                         <span className="font-mono text-xs text-slate-500 shrink-0 truncate max-w-[16rem]" title={t.ha_order.join(' → ')}>{t.ha_order.join(' → ') || '—'}</span>
@@ -1444,6 +1574,75 @@ export default function QKViewPage() {
                                                     <td className="py-1 pr-3 font-mono text-slate-700 dark:text-slate-300">{t.mgmt_ip || '—'}</td>
                                                     <td className="py-1 text-right tabular-nums text-slate-700 dark:text-slate-300">{t.memory_mb || '—'}</td>
                                                 </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {/* Chassis-wide partition inventory (RT#35). A VELOS
+                                controller qkview carries no `show tenants` output at
+                                all, so this — not a tenant list — is the chassis-wide
+                                view a controller archive can answer. Data-driven, so
+                                it renders wherever `show partitions` was captured and
+                                stays absent on rSeries, which has no partitions. */}
+                            {isController && f5osOverview.tenants.length === 0 && (
+                                <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+                                    <p className="text-xs text-slate-600 dark:text-slate-400 flex items-start gap-2">
+                                        <Info className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+                                        <span>
+                                            Tenant inventory is not present in a VELOS controller qkview — tenants
+                                            live on the partitions, and a controller archive does not collect
+                                            <code className="mx-1 px-1 rounded bg-slate-100 dark:bg-slate-700 font-mono">show tenants</code>
+                                            at all. Upload the partition archive to see tenants. The chassis-wide
+                                            partition inventory below is what this archive can answer.
+                                        </span>
+                                    </p>
+                                </div>
+                            )}
+
+                            {f5osOverview.partitions && f5osOverview.partitions.length > 0 && (
+                                <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+                                    <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                                        {isController ? 'Chassis Partitions (chassis-wide)' : 'Chassis Partitions'}
+                                    </p>
+                                    <table className="w-full text-xs">
+                                        <thead className="text-slate-500 uppercase">
+                                            <tr>
+                                                <th className="text-left py-1 pr-3">Partition</th>
+                                                <th className="text-left py-1 pr-3">ID</th>
+                                                <th className="text-left py-1 pr-3">Blade OS</th>
+                                                <th className="text-left py-1 pr-3">Service</th>
+                                                <th className="text-left py-1 pr-3">Controller</th>
+                                                <th className="text-left py-1 pr-3">Status</th>
+                                                <th className="text-left py-1 pr-3">Running</th>
+                                                <th className="text-right py-1">Age</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                            {f5osOverview.partitions.flatMap((p) => (
+                                                p.controllers.length > 0
+                                                    ? p.controllers.map((c, i) => (
+                                                        <tr key={`${p.name}-${c.controller || i}`}>
+                                                            <td className="py-1 pr-3 font-mono text-slate-800 dark:text-slate-200">{i === 0 ? p.name : ''}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-700 dark:text-slate-300">{i === 0 ? (p.id || '—') : ''}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-600 dark:text-slate-400">{i === 0 ? (p.blade_os_version || '—') : ''}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-600 dark:text-slate-400">{i === 0 ? (p.service_version || '—') : ''}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-700 dark:text-slate-300">{c.controller || '—'}</td>
+                                                            <td className={`py-1 pr-3 font-mono ${c.partition_status.startsWith('running') ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>{c.partition_status || '—'}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-600 dark:text-slate-400">{c.running_service_version || '—'}</td>
+                                                            <td className="py-1 text-right tabular-nums text-slate-700 dark:text-slate-300">{c.status_age || '—'}</td>
+                                                        </tr>
+                                                    ))
+                                                    : [(
+                                                        <tr key={p.name}>
+                                                            <td className="py-1 pr-3 font-mono text-slate-800 dark:text-slate-200">{p.name}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-700 dark:text-slate-300">{p.id || '—'}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-600 dark:text-slate-400">{p.blade_os_version || '—'}</td>
+                                                            <td className="py-1 pr-3 font-mono text-slate-600 dark:text-slate-400">{p.service_version || '—'}</td>
+                                                            <td className="py-1 pr-3 text-slate-500" colSpan={4}>no controller assigned</td>
+                                                        </tr>
+                                                    )]
                                             ))}
                                         </tbody>
                                     </table>

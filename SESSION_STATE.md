@@ -2,7 +2,54 @@
 
 Running log of Claude Code sessions in this repo. Each session has three buckets: completed work, unresolved issues, next steps. Most recent session at the top.
 
-Last updated: 2026-09-18 (Session 10)
+Last updated: 2026-09-19 (Session 11)
+---
+
+## Session 11 — 2026-09-19
+
+Cleared the five items left open by Session 10, and found something bigger on the way.
+
+**Completed**
+
+- **RT#338 (new, High) — the archive store is not what its documentation says.** While
+  browser-testing the RT#35 table, the UI displayed the uploaded archive's hostname and
+  it carried the customer domain. **Every archive in `qkview/` is gzip-compressed**,
+  including the three named `.tar`, so RT#203's closing re-sweep — a plain grep — could
+  only ever return zero. Decompressed: **partition.tar 3,474,104 / syscon.tar 1,964,106 /
+  rSeries.tar 1,212,538** hits; the four TMOS `.qkview` files are clean. All three F5OS
+  archives are the same customer's chassis. `CLAUDE.md` and the archive README are
+  corrected. The customer's **partition name is already in the public repo**
+  (`parser.py`, `test_parser.py`) — the domain is not, verified over every blob of every
+  ref.
+- **RT#35 — built** (operator chose caveat + partitions table). Parser refuses unknown
+  headers instead of guessing; 9 tests; rendered correctly in a browser.
+- **RT#36 — verified by clicking it.** `scripts/browser_smoke.mjs` drives Chrome over the
+  DevTools Protocol with node's built-in WebSocket — no new dependency.
+- **RT#334 — 33 lint problems → 0**, and the build typechecks. The two
+  `set-state-in-effect` errors were real: replaced with React's documented render-phase
+  adjustment. Typing `cm_redundancy` off the backend source exposed an unguarded
+  `g.devices.length` and corrected two fields I had guessed wrong.
+- **RT#336 — venv rebuilt** (`.venv.broken-20260919/` set aside, not deleted); node stays
+  on outcome by operator ruling.
+- **RT#37 — the scrub was too narrow and is now complete.** The first pass left
+  customer-derived *object* names — profile, VLAN, node and iRule prefixes that the
+  hostname and address rules never touched. The rewritten pattern note clears all of
+  them, verified by census. The prefixes themselves stay in the gitignored note and on
+  the ticket; naming them here would put them in a public repo, which is the whole
+  point of the exercise.
+
+**Unresolved**
+
+- **RT#338 needs three operator decisions**: retention of the 1.6 GB of customer F5OS
+  archives (deleting them takes the suite from 95 passed back to 64 passed / 31 skipped),
+  what to do about the partition name already public, and whether to rewrite history.
+- RT#37: the five original HARs still on disk — the `rm` is yours (you chose that).
+
+**Next steps**
+
+- Rule on RT#338 (a) retention and (b) the public partition name.
+- Then RT#37's deletion, which is the last of the Session-10 five.
+
 ---
 
 ## Session 10 — 2026-09-18

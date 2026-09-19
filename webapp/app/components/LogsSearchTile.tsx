@@ -3,7 +3,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HelpCircle, Loader2, X } from 'lucide-react';
 
-type LogEntry = {
+// Exported so the analyzer page types the same rows rather than declaring a
+// second, subtly different shape for them.
+export type LogEntry = {
     timestamp: string;
     hostname?: string;
     severity: string;
@@ -169,9 +171,10 @@ export default function LogsSearchTile({
             }
             setResults((data as SearchResponse).entries || []);
             setTotal((data as SearchResponse).total || 0);
-        } catch (err: any) {
-            if (err?.name === 'AbortError') return;
-            setError(String(err?.message || err));
+        } catch (err) {
+            // A fetch abort is a DOMException, which TS models as an Error.
+            if (err instanceof Error && err.name === 'AbortError') return;
+            setError(err instanceof Error ? err.message : String(err));
             setResults([]);
             setTotal(0);
         } finally {
@@ -255,7 +258,7 @@ export default function LogsSearchTile({
                         <div className="p-3 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-xs text-slate-700 dark:text-slate-300">
                             <p className="font-semibold mb-2">Query syntax</p>
                             <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1 font-mono">
-                                <li><span className="text-blue-600 dark:text-blue-400">"user session"</span> — phrase</li>
+                                <li><span className="text-blue-600 dark:text-blue-400">&quot;user session&quot;</span> — phrase</li>
                                 <li><span className="text-blue-600 dark:text-blue-400">user OR session</span> — either word</li>
                                 <li><span className="text-blue-600 dark:text-blue-400">user session</span> — both words</li>
                                 <li><span className="text-blue-600 dark:text-blue-400">user -session</span> — exclude word</li>
@@ -265,7 +268,7 @@ export default function LogsSearchTile({
                                 <li><span className="text-blue-600 dark:text-blue-400">process:bigd</span> — exact process</li>
                             </ul>
                             <p className="mt-2 text-slate-500 dark:text-slate-400">
-                                Regex and fuzzy (<span className="font-mono">/…/</span>, <span className="font-mono">rat~</span>) aren't supported.
+                                Regex and fuzzy (<span className="font-mono">/…/</span>, <span className="font-mono">rat~</span>) aren&apos;t supported.
                             </p>
                         </div>
                     )}
