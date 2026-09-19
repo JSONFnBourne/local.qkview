@@ -38,17 +38,22 @@ Cleared the five items left open by Session 10, and found something bigger on th
   the ticket; naming them here would put them in a public repo, which is the whole
   point of the exercise.
 
+- **RT#37 — closed.** The operator deleted the five original captures; verified gone,
+  only `qkview/har_scrubbed/` remains and it still verifies clean. Both commits pushed
+  to the public origin (`e2a53c9..005d8df`).
+
 **Unresolved**
 
 - **RT#338 needs three operator decisions**: retention of the 1.6 GB of customer F5OS
   archives (deleting them takes the suite from 95 passed back to 64 passed / 31 skipped),
   what to do about the partition name already public, and whether to rewrite history.
-- RT#37: the five original HARs still on disk — the `rm` is yours (you chose that).
+- **RT#339** — may the scrubbed captures be committed as CI fixtures, and what happens to
+  `.har_scrub_map.json`, which is now a re-identification key rather than a debugging aid.
 
 **Next steps**
 
-- Rule on RT#338 (a) retention and (b) the public partition name.
-- Then RT#37's deletion, which is the last of the Session-10 five.
+- Rule on RT#338 (a) retention and (b) the public partition name. Everything else in the
+  Session-10 five is closed.
 
 ---
 
