@@ -13,9 +13,9 @@ an `RT#n` is a stable reference for the maintainer rather than a link you can fo
 ## At a glance (generated — edit the ticket, not this block)
 
 <!-- rt-sync:begin -->
-_9 open in RT, rendered 2026-09-18 by `rt sync` — edit the ticket, not this line._
+_5 open in RT, rendered 2026-09-18 by `rt sync` — edit the ticket, not this line._
 
-🟠 **RT#35** (Session 7) Decide whether VELOS *controller* archives should show an _aggregated_ chassis-wide tenant inventory synthesized from the partition subpac · 🟡 **RT#36** (Session 4) Add a *UI-driven* delete for backend/logs_db/ — a per-row delete action that wipes both the analyses row and the matching logs_<id>.db · 🟡 **RT#37** (Session 1) Audit v1_localhost.har, v2_localhost.har, v3_localhost.har for embedded customer PII the same way v4_localhost.har was reviewed — confirm · 🟡 **RT#38** (Session 1) Build a HAR scrub helper that rewrites customer hostnames / IP ranges / device-name prefixes observed in captured HARs to RFC5737 addresse · 🟡 **RT#39** (Session 1) Investigate the vCMP.tgz 77 s and partition.tar 64 s receive times — response payloads (1.4–1.5 MB) are not that much larger than tmos_ve · 🟡 **RT#334** webapp: npm run lint reports 28 errors / 5 warnings now that the script runs (RT#41) · 🟡 **RT#335** Integration tests were silently skipped on every run: conftest fixture path never existed in the fork · 🔵 **RT#41** (Session 2) Replace or drop "lint": "next lint" in webapp/package.json — next lint is deprecated in Next.js 16 and errors out with "Invalid project di · 🔵 **RT#336** blackbriar checkout: .venv and webapp/node_modules are non-executable copies, not installs
+🟠 **RT#35** (Session 7) Decide whether VELOS *controller* archives should show an _aggregated_ chassis-wide tenant inventory synthesized from the partition subpac · 🟡 **RT#36** (Session 4) Add a *UI-driven* delete for backend/logs_db/ — a per-row delete action that wipes both the analyses row and the matching logs_<id>.db · 🟡 **RT#37** (Session 1) Audit v1_localhost.har, v2_localhost.har, v3_localhost.har for embedded customer PII the same way v4_localhost.har was reviewed — confirm · 🟡 **RT#334** webapp: npm run lint reports 28 errors / 5 warnings now that the script runs (RT#41) · 🔵 **RT#336** blackbriar checkout: .venv and webapp/node_modules are non-executable copies, not installs
 <!-- rt-sync:end -->
 
 ## High
