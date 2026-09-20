@@ -129,6 +129,53 @@ def test_synthetic_space_is_stable_and_not_rewritten_twice():
     assert "10.0.0.1" not in text
 
 
+def test_fqdn_followed_by_a_hyphen_suffix_is_still_rewritten():
+    """THE RT#339 DEFECT. TMOS names a cert-key-chain after an FQDN and then
+    suffixes it. The trailing boundary used to exclude `-`, so the whole FQDN
+    was unmatchable and only a literal domain rule fired — leaving the
+    customer's internal subdomain labels in place."""
+    har = _har([_entry("http://localhost:3001/x",
+                       resp_text='chain { svc-alpha.auth.stage.acme-corp.com-15Sep22-3152 { } }')])
+    _, text, s = _run(har)
+    assert "acme-corp" not in text
+    assert "auth.stage" not in text, "internal subdomain structure survived the scrub"
+    assert s.host_map == {"svc-alpha.auth.stage.acme-corp.com": "h1.example.net"}
+    assert "h1.example.net-15Sep22-3152" in text, "the non-hostname suffix must be kept"
+
+
+def test_certificate_serial_in_a_filestore_name_is_replaced():
+    """TMOS embeds the cert serial in the filestore filename; CLAUDE.md lists
+    serial numbers as never-commit."""
+    # A synthetic 46-digit value of the same shape. NEVER paste a real one:
+    # the first draft of this test used the serial straight out of the
+    # capture, in the test that exists to stop serials leaking.
+    serial = "4071592653589793238462643383279502884197169399"
+    har = _har([_entry("http://localhost:3001/x",
+                       resp_text=f'cert /Common/site_2027-04-14_{serial}.crt')])
+    _, text, s = _run(har)
+    assert serial not in text
+    assert s.counts["cert_serial"] == 1
+    synthetic = s.serial_map[serial]
+    assert len(synthetic) == len(serial), "length preserved so the name keeps its shape"
+    assert f"_{synthetic}.crt" in text
+
+
+def test_ordinary_numbers_are_not_mistaken_for_serials():
+    har = _har([_entry("http://localhost:3001/x",
+                       resp_text='{"t": 1758300000000, "port": 9443, "bytes": 125681664}')])
+    _, text, s = _run(har)
+    assert "1758300000000" in text and "9443" in text and "125681664" in text
+    assert s.counts["cert_serial"] == 0
+
+
+def test_survivors_catches_a_serial_that_escaped():
+    s = har_scrub.Scrubber(har_scrub.Patterns([]))
+    s._map_serial("9" * 46)
+    found = har_scrub.survivors("cert_" + "9" * 46 + ".crt", s)
+    assert found and found[0].startswith("cert_serial")
+    assert har_scrub.survivors("cert_00001.crt", s) == []
+
+
 # ---- headers -------------------------------------------------------------
 
 def test_cookie_and_authorization_are_blanked_and_x_filename_synthesised():

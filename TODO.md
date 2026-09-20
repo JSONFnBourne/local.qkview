@@ -13,9 +13,9 @@ an `RT#n` is a stable reference for the maintainer rather than a link you can fo
 ## At a glance (generated — edit the ticket, not this block)
 
 <!-- rt-sync:begin -->
-_2 open in RT, rendered 2026-09-19 by `rt sync` — edit the ticket, not this line._
+_0 open in RT, rendered 2026-09-20 by `rt sync` — edit the ticket, not this line._
 
-🟠 **RT#338** RT#203's 'zero hits' archive clearance is false: every archive is gzip-compressed and three are the same customer's · 🔵 **RT#339** Decide whether the scrubbed HAR captures may be committed as in-tree CI fixtures (and what to do with the re-identification map)
+_nothing open_
 <!-- rt-sync:end -->
 
 ## High

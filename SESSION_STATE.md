@@ -38,22 +38,36 @@ Cleared the five items left open by Session 10, and found something bigger on th
   the ticket; naming them here would put them in a public repo, which is the whole
   point of the exercise.
 
-- **RT#37 — closed.** The operator deleted the five original captures; verified gone,
-  only `qkview/har_scrubbed/` remains and it still verifies clean. Both commits pushed
-  to the public origin (`e2a53c9..005d8df`).
+- **RT#37 — closed.** The operator deleted the five original captures; verified gone.
+- **RT#338 — closed.** Retention ruled KEEP: the three customer F5OS archives stay,
+  because they are the only F5OS fixtures and removing them costs 31 integration tests.
+  The documentation is corrected and the working sweep command recorded. Leg (b), the
+  partition name in the public repo, was **withdrawn** — the operator challenged it and
+  was right: the identifier is the domain, the domain is absent from every blob of every
+  ref, and a bare four-character syslog hostname leads nowhere. Floating a history
+  rewrite beside it was an overstatement and is retracted on the ticket.
+- **RT#339 — closed: do NOT commit the scrubbed captures.** Reading one by eye — the
+  step the ticket called for — found the customer's internal subdomain labels still
+  present in a cert-key-chain name, plus 12 embedded certificate serials. Both the
+  tool's verification pass and a token census had called those files clean, and neither
+  was lying: one proves only that it removed what it found, the other only looks for
+  tokens already on a list. Two other reasons stand independently: 35 of 35
+  `/api/analyze` bodies are empty (Chrome does not retain streamed NDJSON), and the
+  webapp has no test stack, so nothing could consume the fixtures without new
+  dependencies. **har_scrub is fixed** (trailing boundary now admits `-`; new cert-serial
+  rule) and now flags 4 of the 5 captures it previously passed. **Scrubbing is one-way**:
+  a partially-scrubbed name is allow-listed and cannot be repaired by a second pass.
 
 **Unresolved**
 
-- **RT#338 needs three operator decisions**: retention of the 1.6 GB of customer F5OS
-  archives (deleting them takes the suite from 95 passed back to 64 passed / 31 skipped),
-  what to do about the partition name already public, and whether to rewrite history.
-- **RT#339** — may the scrubbed captures be committed as CI fixtures, and what happens to
-  `.har_scrub_map.json`, which is now a re-identification key rather than a debugging aid.
+- **Nothing. The `qkview` queue is empty** for the first time since it was created.
 
 **Next steps**
 
-- Rule on RT#338 (a) retention and (b) the public partition name. Everything else in the
-  Session-10 five is closed.
+- One cleanup is recommended and not run, because it deletes customer-derived material:
+  remove `qkview/har_scrubbed/` (2.7 MB, demonstrably not clean) and
+  `.har_scrub_map.json` (now a re-identification key). Command is on RT#339. Keep
+  `.har_scrub_patterns.txt` — it is what makes the next capture cheap to scrub properly.
 
 ---
 

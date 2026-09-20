@@ -102,12 +102,26 @@ _TLDS = (
 # Boundaries deliberately ADMIT `_`: TMOS object names embed identifiers as
 # `host.example.com_443_tt` and `vs_10_1_2_3_443`, and a rule that stops at a
 # word boundary leaves exactly those in place.
+# The TRAILING boundary must admit `-` as well as `_`. TMOS names an object
+# after an FQDN and then suffixes it, e.g. `<fqdn>-15Sep22-3152` for a
+# cert-key-chain; excluding `-` here made the whole FQDN unmatchable, so the
+# literal domain rule fired alone and left the customer's internal subdomain
+# labels (the `.<svc>.<env>.` part) in place. Found 2026-09-20 by reading a scrubbed
+# capture BY EYE — neither the verification pass nor a token census can see a
+# structure nobody thought to look for (RT#339).
 HOST_RE = re.compile(
     r"(?<![A-Za-z0-9.-])"
     r"((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:" + _TLDS + r"))"
-    r"(?![A-Za-z0-9-])",
+    r"(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
+
+# TMOS filestore names embed the certificate SERIAL, as
+# `<cn>_<expiry>_<46-digit serial>.crt`. CLAUDE.md lists serial numbers as
+# never-commit, and 12 of them survived the first scrub of these captures. A
+# digit run this long is a serial or a key id, never a timestamp (13 digits),
+# a port or a size.
+CERT_SERIAL_RE = re.compile(r"(?<!\d)\d{20,}(?!\d)")
 IPV4_RE = re.compile(r"(?<![\d.])((?:\d{1,3}\.){3}\d{1,3})(?![\d.])")
 IPV4_UNDERSCORE_RE = re.compile(r"(?<!\d)((?:\d{1,3}_){3}\d{1,3})(?!\d)")
 
@@ -188,11 +202,13 @@ class Scrubber:
         self.host_map: dict[str, str] = {}
         self.ip_map: dict[str, str] = {}
         self.filename_map: dict[str, str] = {}
+        self.serial_map: dict[str, str] = {}
         self.counts: dict[str, int] = {
             "pattern": 0,
             "hostname": 0,
             "ipv4": 0,
             "ipv4_underscore": 0,
+            "cert_serial": 0,
             "header_blanked": 0,
             "filename": 0,
         }
@@ -210,6 +226,13 @@ class Scrubber:
         if key not in self.host_map:
             self.host_map[key] = f"h{len(self.host_map) + 1}.example.net"
         return self.host_map[key]
+
+    def _map_serial(self, serial: str) -> str:
+        """Length-preserving synthetic serial, so the surrounding filename keeps
+        its shape and stays recognisably a cert filename."""
+        if serial not in self.serial_map:
+            self.serial_map[serial] = str(len(self.serial_map) + 1).zfill(len(serial))
+        return self.serial_map[serial]
 
     def _map_ip(self, ip: str) -> str:
         if ip not in self.ip_map:
@@ -253,6 +276,12 @@ class Scrubber:
             return self._map_ip(dotted).replace(".", "_")
 
         s = IPV4_UNDERSCORE_RE.sub(ip_us_sub, s)
+
+        def serial_sub(m: re.Match) -> str:
+            self.counts["cert_serial"] += 1
+            return self._map_serial(m.group(0))
+
+        s = CERT_SERIAL_RE.sub(serial_sub, s)
         return s
 
     def _scrub_filename(self, name: str) -> str:
@@ -320,6 +349,9 @@ def survivors(text: str, scrubber: Scrubber) -> list[str]:
     for name in scrubber.filename_map:
         if name in text:
             found.append(f"filename {name}")
+    for serial in scrubber.serial_map:
+        if re.search(r"(?<!\d)" + re.escape(serial) + r"(?!\d)", text):
+            found.append(f"cert_serial {serial[:6]}…({len(serial)} digits)")
     for compiled, _, display in scrubber.patterns.rules:
         if compiled.search(text):
             found.append(f"pattern {display}")
@@ -334,7 +366,11 @@ def scan_only(text: str, patterns: Patterns) -> dict[str, int]:
         if _is_valid_ipv4(ip) and not _keep_ip(ipaddress.IPv4Address(ip))
     }
     pats = sum(len(c.findall(text)) for c, _, _ in patterns.rules)
-    return {"hostnames": len(hosts), "ipv4": len(ips), "pattern_hits": pats}
+    serials = set(CERT_SERIAL_RE.findall(text))
+    return {
+        "hostnames": len(hosts), "ipv4": len(ips),
+        "cert_serials": len(serials), "pattern_hits": pats,
+    }
 
 
 # ---- cli -----------------------------------------------------------------
