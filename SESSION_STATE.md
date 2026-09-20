@@ -2,10 +2,10 @@
 
 Running log of Claude Code sessions in this repo. Each session has three buckets: completed work, unresolved issues, next steps. Most recent session at the top.
 
-Last updated: 2026-09-19 (Session 11)
+Last updated: 2026-09-20 (Session 11)
 ---
 
-## Session 11 — 2026-09-19
+## Session 11 — 2026-09-19 → 09-20
 
 Cleared the five items left open by Session 10, and found something bigger on the way.
 
@@ -60,14 +60,29 @@ Cleared the five items left open by Session 10, and found something bigger on th
 
 **Unresolved**
 
-- **Nothing. The `qkview` queue is empty** for the first time since it was created.
+- **Nothing. The `qkview` queue is empty** for the first time since it was created —
+  11 tickets resolved (RT#35, 36, 37, 38, 39, 41, 334, 335, 336, 338, 339), 5 opened.
+- Two near-misses of my own, both caught by the pre-push privacy gate and both worth the
+  next session's attention because neither was caught by a tool that was supposed to:
+  I put the customer's **real 46-digit certificate serial** into the very test that
+  asserts serials must not leak, having just read it on screen; and I wrote the
+  customer's object-name prefixes into prose bound for a public repo. Nothing was
+  pushed in either case. **The eyeball step that makes a scrub trustworthy is the same
+  step that loads customer data into working memory, and the next thing written after
+  it is where that data lands.** Read by eye, then synthesise every value carried out.
+- **RT#350** filed against `home.arpa`: `tools/todo_archive.py` leaves two wrong pointers
+  (it re-archives an existing pointer and repoints it at itself, and it lists every RT id
+  mentioned in a bullet rather than the bullet's own). Both hand-corrected here, so the
+  defects are invisible in this repo now — which is the argument for the ticket.
 
 **Next steps**
 
-- One cleanup is recommended and not run, because it deletes customer-derived material:
-  remove `qkview/har_scrubbed/` (2.7 MB, demonstrably not clean) and
-  `.har_scrub_map.json` (now a re-identification key). Command is on RT#339. Keep
-  `.har_scrub_patterns.txt` — it is what makes the next capture cheap to scrub properly.
+- **Nothing is outstanding here.** The recommended cleanup was run by the operator:
+  `qkview/har_scrubbed/` and `.har_scrub_map.json` are gone, verified. `.har_scrub_patterns.txt`
+  is kept deliberately (gitignored) — it is what makes the next capture cheap to scrub properly.
+- `.venv.broken-20260919/` (103 MB) is still on disk. Safe to delete; nothing references it.
+- If a HAR is ever captured again: scrub it, then **read it by eye**, then synthesise any
+  value you carry out of that reading into a test or a note.
 
 ---
 
@@ -110,374 +125,7 @@ Queue pass over `qkview` (six open tickets) from blackbriar; anything needing no
 
 ---
 
-## Session 9 — 2026-09-14
-
-**Completed**
-
-- **RT#203 — a real production customer qkview was on this disk, and is now gone.**
-  Found while measuring archive shapes for the sibling `v2_qkview` fixtures:
-  `qkview/vCMP.tgz` (393 MB) carried 956 members naming a customer's internal
-  Kubernetes API, ingress and guest-wifi endpoints. **No git exposure at any point** —
-  verified before anything else, because this repo has a public origin: nothing under
-  `qkview/` tracked, no archive added on any ref, no blob over 5 MB in history, ignored
-  four ways. Operator ruled delete once the case had closed and ran it themselves;
-  sha256 verified immediately before removal. The seven remaining archives were
-  re-swept for that domain — zero hits, though that is one domain string and not a
-  clearance.
-- **Recorded what the directory holds**, in two places because one cannot be tracked:
-  an uncommitted `qkview/README.md` at the point of use (the `vCMP.tgz` row kept and
-  struck through, so the history stays readable), and a tracked pointer in `CLAUDE.md`.
-- **Merged `origin/main` — Session 8's v0.1.0, file explorer and findings export —
-  and pushed.** Not a fast-forward: origin was 4 ahead. One conflict, `TODO.md`,
-  resolved in favour of the RT-migrated form, which is also a superset.
-- **Two things stopped before that public push:** a `.bak` file of mine that
-  `git add -A` had swept into a commit, and the first-ever appearance of an internal
-  hostname (`rt.home.arpa`) and a local directory path in a public repository.
-
-**Unresolved**
-
-- **RT#37 / RT#38 — all five HARs still exist here with customer data.** Session 8's
-  note says they were audited and deleted and retires both tickets; that happened on
-  another checkout. Per-file counts are on RT#37. `v4`, the one that note calls
-  reviewed, still carries the domain. **This is the open decision** — the same one
-  that was taken for `vCMP.tgz`.
-- **RT#39's premise is half gone** — it compares `vCMP.tgz`'s receive time against
-  `partition.tar`'s. Still answerable with the archives that remain, after re-measuring.
-- **RT#41** — the flat ESLint config was written from the installed package's export
-  shapes but **has never been executed**: blackbriar has no node runtime.
-- RT#35 (product decision), RT#36 unchanged.
-
-**Next steps**
-
-1. **Decide what happens to the five HAR files.**
-2. Run `npm run lint` once on a host with node, to close RT#41.
-3. Re-measure RT#39 against `partition.tar` and `tmos_ve.qkview`.
-
-## Session 8 — 2026-06-30
-
-Focus: a project status / application-readiness review that turned into an action pass — get the working copy current, prove the test suite, ship the first release, and finally close the Session-6 PII-dangler exposure at the source.
-
-**Working tree at session start:** 25 files showed as modified but with *zero* content change — pure exec-bit loss (`100755 → 100644`), likely from a checkout on a filesystem that dropped the bit. Local `main` was **3 commits behind `origin/main`** (Session 7 had been pushed but this clone hadn't pulled). The `.venv` was dead — built against Python 3.12.3, which is gone; the host is now on **Python 3.14.4**, so the venv's interpreter symlinks dangled and `fastapi`/`uvicorn` weren't even installed.
-
-### Completed
-
-| Area | Change | Evidence |
-|---|---|---|
-| Synced to Session 7 | Fast-forward `6d05292 → a6c4814`; now even with origin. | `git pull --ff-only` |
-| Cleared exec-bit churn | Restored the executable bit on the 25 files with `chmod 755` (tree-wide `git checkout` was blocked by the safety classifier; chmod gives the identical clean result). Tree clean afterward. | — |
-| Rebuilt venv on 3.14 | `python3 -m venv .venv --clear`; reinstalled deps. **`pytest` → 25 passed, 31 skipped in 0.09s** on Python 3.14.4. (31 skips = real-archive integration tests, fixtures not linked — documented-expected.) | — |
-| **Fixed `lxml` install break on 3.14** | `lxml==5.3.0` has no cp314 wheel → pip fell back to a source build needing system `libxml2`/`libxslt` headers, breaking a clean install. Bumped pin to `lxml~=6.1` (ships manylinux cp314 wheels). Suite green after. | commit `af6f50f` |
-| Deleted the HAR captures | Removed `v1`–`v5_localhost.har`. Audit first confirmed: no auth headers / cookies / emails, **never tracked in any commit or ref**, but they *did* embed customer-derived config (e.g. a real VS `destination /public/<ip>:80`). User chose delete; archives in `qkview/` kept for future testing. | — |
-| **First release** | Tagged `v0.1.0` (annotated) at `af6f50f`; pushed; created the GitHub Release with notes. | — |
-| **Closed the PII-dangler exposure at the source** | Found the Session-6 pre-rewrite commits *still* served at HTTP 200 on GitHub (`f27edce`, `e974248`) — only a Support purge or ~90-day GC would clear them. Repo had **0 forks / 0 network**, so user deleted the GitHub repo entirely; I recreated it from the clean local history, re-pushed `main` + `v0.1.0`, recreated the release. **Old SHAs now HTTP 404.** Deleting the repo destroyed its whole object store, so the danglers are gone permanently — no Support ticket, no wait. | repo recreated; `commit/f27edce → 404` |
-
-### Verified
-
-- **`pytest` actually run** (not just claimed) in the rebuilt venv on Python 3.14.4 → 25 passed, 31 skipped. All backend modules `py_compile` clean.
-- **Pre-push PII scan** (`git diff origin/main..HEAD`) before the release push — only the one-line `lxml` change, no secrets/PII.
-- **Dangler removal verified** post-recreate: `curl` of both old leaked SHAs returns 404; `git ls-remote origin` shows `main af6f50f` + `v0.1.0 39b802a`.
-
-### Caveats / unresolved
-
-- **Historical PII disclosure window stands.** The customer identifiers were publicly reachable for the lifetime of the old repo (Session 5 push → today's delete). The recreate closes it going forward but can't un-disclose. Identifiers (hostnames / IP ranges / device prefixes) aren't rotatable, so no credential action — *unless* an actual secret was among them (per Session 6 notes, it was identifiers only).
-- **Still no webapp build / browser smoke this session.** Node 20.20.2 *is* present on this host now, but `npm run build` / `npm run lint` were not run, and the Session-7 VS-table + controller `page.tsx` changes remain build-checked only. Carried forward from Session 7 — still the top open item.
-- **`qkview/` ~2.1 GB of real customer archives** kept on disk intentionally (user wants them for future testing). Gitignored, never tracked — no leak risk, just disk.
-- **Stray `f5favicon.ico`** still untracked at repo root, not wired into the webapp. Same decision pending as Session 7.
-
-### Next session should open with
-
-1. Build the webapp on a node host (`cd webapp && npm run build`) and smoke-test the Session-7 VS table (filter + windowing on vCMP's 1961 rows) and the controller tenant page — the longest-standing carry-forward.
-2. Decide the stray `f5favicon.ico` (wire in as `webapp/app/icon.ico`, or delete).
-3. Get the user's call on the aggregated controller tenant inventory (High TODO).
-
 ---
 
-## Session 7 — 2026-06-18
-
-Focus: user greenlit four backlog items in one go — (1) surface VELOS *controller* tenant inventory (resolving the long-standing Session-2 product question), (2) the `logs_db/` retention sweep, (3) search + virtualization on the Configured Virtual Servers table, (4) hardening the negation-only log query. All four landed.
-
-**Note on the gap since Session 6.** Six commits landed between Session 6 and this session that were never logged here (`74e9b16`, `b6fc38f`, `d3b9f23` README Windows/ExecutionPolicy work; `5324432` FTS5 implicit-prefix + cached logs/sources + elapsed timer; `708cdc2` ignore `.claude/`; `6d05292` bump next to ^16.2.4 for GHSA-q4gf-8mx6-v5v3). They closed the top two Session-6 follow-ups (README ExecutionPolicy note is in; the `backup/pre-scrub` branch + `pre-scrub-backup` tag are gone). Working tree at session start: clean, `main` even with `origin/main`, plus one stray untracked `f5favicon.ico` (not wired into the webapp — still undecided).
-
-### Completed
-
-| Area | Change | Files |
-|---|---|---|
-| VELOS controller tenant inventory | The tenant parser was always variant-agnostic (parses `show tenants` for any F5OS archive); suppression was purely a UI gate. Relaxed the tenant-table gate and the "tenant configs not included" banner from `!isController` to `tenants.length > 0`; controller framing relabels the table **"Tenant Inventory (chassis-wide)"**. Top block still shows the Chassis card for controllers (vs Tenant Counts for partition/rSeries). Updated the stale `isController` comment. | [webapp/app/qkview/page.tsx](webapp/app/qkview/page.tsx) |
-| `logs_db/` retention sweep | `_sweep_orphan_logs_db()` called from `startup_event`. Removes `logs_<id>.db` whose id is absent from the `analyses` table, plus `.tmp_logs_*.db` crash leftovers older than a 1 h age guard (so a live analysis in another worker is never reaped). Reads valid ids first; skips entirely if the table can't be read (never deletes on uncertainty). Logs removed count + reclaimed MB. | [backend/main.py](backend/main.py) |
-| VS table search + virtualization | New dependency-free `VirtualizedVSTable` (dep budget forbids react-window). Client-side filter over name/destination/pool, "X of Y shown" counter, empty-state row. Fixed-row-height windowing above 100 rows: only viewport + 10-row overscan rendered, top/bottom spacer `<tr>`s keep the scrollbar honest; cells `whitespace-nowrap` to keep rows single-line so row height is stable. Filter + scroll reset when the app set changes (partition switch / new upload). Replaced the inline IIFE table body. | [webapp/app/qkview/page.tsx](webapp/app/qkview/page.tsx) |
-| Negation-only query → 400 | `_parse_log_query` raises `NegationOnlyQuery` (a `ValueError`) when a query reduces to negatives only; `search_logs` catches it → HTTP 400 with a user-facing message. Replaces the old silent `fts=None` fallback that matched everything. Field-filter-only queries still return `fts=None` and work unchanged. | [backend/main.py](backend/main.py) |
-
-### Verified
-
-- **Parser unit-checked in isolation** (no venv deps on this host, so extracted the pure-Python helpers via AST and exec'd them): `error -timeout` → `(error*) NOT (timeout*)`; `severity:error` → `(None, {severity:error})`; `mcpd` → `mcpd*`; `  ` → `(None, {})` (no raise); `-timeout` → raises `NegationOnlyQuery`. `py_compile main.py` clean.
-- **Retention sweep dry-run against the real `backend/logs_db/`** (logs_44–47, all with matching `analyses` rows) → would delete nothing. Confirmed it doesn't nuke live indexes.
-- **Controller tenant data inspected from the persisted `local_qkview.db`:** every `velos-controller` capture (`syscon.tar`, ids 19/24/32) has **0 tenants**; `velos-partition` has 5, `rseries` has 2. See caveat below.
-
-### Caveats / unresolved
-
-- **Controller tenant inventory is invisible on `syscon.tar`** because a VELOS controller qkview doesn't emit `show tenants` — tenants live on the partitions. The UI change is correct and data-driven (renders when data exists) but the available controller fixture has nothing to show. Surfacing a true chassis-wide inventory would need cross-subpackage aggregation in the extractor (pull partition/peer-qkview tenant data from the controller bundle) — logged as a new **High** TODO; confirm scope before building.
-- **No webapp build run this session.** Node/npm aren't on this host (the webapp builds on outcome/elitebook). Backend changes were syntax- + unit-checked; the `page.tsx` changes were review-checked only. **Run `cd webapp && npm run build` on a node host before relying on the VS table / controller changes**, then rebuild + restart the 3001 server.
-- **VS windowing uses a fixed 33px row height.** If real rows differ, the scrollbar thumb can drift slightly, but content always fills the viewport (slice keys off live `scrollTop`) and overscan hides edges. Acceptable; revisit only if it visibly janks.
-- **Stray `f5favicon.ico`** still untracked at repo root, not wired into the webapp. Decide: wire it in (as `webapp/app/icon.ico`) or delete.
-
-### Next session should open with
-
-1. Build the webapp on a node host and smoke-test the VS table (filter, windowing on vCMP's 1961 rows) and the controller page.
-2. Get the user's call on the aggregated controller tenant inventory (new High TODO) — and on the stray favicon.
-3. Commit this session's work (backend `main.py` + `webapp/app/qkview/page.tsx` + doc refresh) once the build is confirmed green.
-
----
-
-## Session 6 — 2026-04-21
-
-Focus: post-Session-5 follow-through. Session 5 had closed with three accepted deferrals (rebuild webapp for the rename, decide how to handle the public PII leak, close out the `.run_one*.sh` scripts). User greenlit all three this turn — including the destructive option on the PII leak — plus asked a Windows install verification question that surfaced a small README gap.
-
-### Completed
-
-| Area | Change | Evidence |
-|---|---|---|
-| Webapp rebuild + restart | Background `npm run build` (TypeScript + Turbopack, 5/5 static pages), kill the stale 3001 next-server, start a fresh one against the new `.next/` build. Confirmed "QKView Analyzer" (renamed last session) live in the served HTML on both `/` and `/qkview`. | — |
-| **History rewrite to scrub the public PII leak** | User authorized the destructive option: `git filter-repo` against a 9-pattern literal-replacement file covering the customer-identifying strings surfaced in Session 5's audit plus broader catch-all customer prefixes / domains / IP ranges, all mapped to synthetic RFC-style equivalents. Patterns match the local scrub-helper note; not enumerated here. All 11 commits on `main` rewritten in 0.07 s; every commit SHA changed (old initial → new `f36c03c`; old HEAD → new `6d96db8`). Post-rewrite, every blob in every commit was grepped for the original patterns — zero hits. | `/tmp/qkview-scrub-replacements.txt` (replacement file, kept local) |
-| Force-push with lease | `git push --force-with-lease=main:<pre-rewrite-SHA>` — lease pinned to the Session 5 HEAD so if anyone had pushed in between the force would have aborted. Clean fast-rewrite: `+ e974248...6d96db8  main -> main (forced update)`. | — |
-| Safety refs retained locally | Before the rewrite, tagged the pre-rewrite state as `pre-scrub-backup` and branched it as `backup/pre-scrub`. Both remain local-only; user can delete when satisfied. Never pushed. | — |
-| `.run_one*.sh` closed out | Deleted both scripts from the repo root (session-research tooling carried since Session 3). Their real-customer-archive paths and per-archive `/tmp/` result dumps were the reason they had to stay untracked — no reason to keep them around now that the seven-archive sweep isn't an active workstream. | — |
-| Windows install sequence verified against README | User's proposed `git clone → py -3 -m venv → pip install → npm install → npm run build → 2-terminal uvicorn + npm run start` sequence in PowerShell confirmed as correct. [README.md:69-94](README.md#L69-L94) already has the matching block. | [README.md:69-94](README.md#L69-L94) |
-| README gap identified — PowerShell ExecutionPolicy | Windows users hitting a fresh `Activate.ps1` invocation may see an execution-policy block; `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` unblocks it once. README does not mention this today. User asked to defer the doc edit to the next session. | [README.md:77](README.md#L77) |
-
-### Caveats worth remembering
-
-- **GitHub dangling-object cache.** Force-push moved every ref off the old SHAs, but GitHub retains unreferenced commit objects for up to ~90 days and they remain reachable via direct-SHA URL (e.g. `github.com/JSONFnBourne/local.qkview/commit/f27edce`). They're no longer discoverable through the UI, no longer indexed, and will eventually be GC'd. Clearing them faster requires contacting GitHub Support for a repo-wide cache purge — not done today.
-- **Anyone who cloned between Session 5's push and Session 6's force-push** will have the leaking SHAs in their local reflog. No known clones exist outside this machine, but worth noting.
-- **Session 5's SHAs in SESSION_STATE are now stale.** The Session 5 entry below references SHAs like `f27edce`, `ef6a70c`, `f98b96a`, etc. — those were the pre-rewrite values. History rewrite changed them all. Not fixing the back-entry since the narrative is still accurate; just a reader-beware.
-- **Webapp dev server on 3001 now serves the rename**, and backend on 8001 is the fresh Session 5 restart that has the logs_db persistence. Both were confirmed working end-to-end by the user before session close.
-
-### Unresolved / carried forward
-
-- **README Windows block is missing the ExecutionPolicy note.** One-line add into the `### Windows (PowerShell)` section of [README.md](README.md) — user explicitly deferred to next session. Suggested wording: "If `Activate.ps1` fails with an execution-policy error, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then retry."
-- **Local `backup/pre-scrub` branch + `pre-scrub-backup` tag** remain pointing at the pre-rewrite state (commit `e974248`). Useful if anything in the rewrite turns out to have been over-aggressive; delete once the user is satisfied: `git branch -D backup/pre-scrub && git tag -d pre-scrub-backup`.
-- **All Session-4 Medium-priority carryovers** are still open (logs_db retention sweep, negation-only query hardening, HAR scrub helper, vCMP-scale VS table virtualization, `partition\d*_manager` doc fix, Next.js 16 `next lint` replacement). None were touched this session.
-
-### Next session should open with
-
-1. Add the PowerShell ExecutionPolicy note to [README.md](README.md)'s Windows install block (explicitly deferred by user).
-2. Confirm user is done with the local `backup/pre-scrub` safety refs and delete them.
-3. Triage the Session-4 Medium bucket if there's bandwidth — logs_db retention sweep is probably the highest-ROI after the Windows README fix.
-
----
-
-## Session 5 — 2026-04-21
-
-Focus: user-reported failure of the Session 4 log-search tile smoke-test ("did not render, see screenshot") plus the Session 3 reconciliation decision that was blocking edits. Turned into a longer arc — the render failure wasn't the tile, it was the entire webapp serving a stale build manifest. Fixed that, surfaced the (B)/(C) question with a clarification that 3001 and 3000 are intentionally distinct product surfaces, shipped the cluster_nodes follow-through, committed the Session 1–4 carryover backlog, ran a pre-push PII scrub that caught real leaks, first meaningful push to the public origin, then a second failure trail (chip counts `(0)`, search returns "Not Found") resolved as a stale backend running pre-Session-4 code.
-
-### Completed
-
-| Area | Change | Files / Evidence |
-|---|---|---|
-| Stale next-server 3001 → unstyled page | Running next-server at PID 193858 held an in-memory manifest referencing `/_next/static/chunks/135es0s7kqs4l.css` (BUILD_ID `obRDASwbZO75GUBrdaR9J`) but the disk had `0hlxc~kgbrba..css` from BUILD_ID `ZZrOVUxwjipO3rRU-PsZB`. Every CSS request 500'd → all Tailwind classes rendered as naked HTML. Killed and restarted → disk BUILD_ID matched server, CSS served 200 (27 KB). | — |
-| Session 3 reconciliation — **Option (B) chosen** | User clarified that 3001 (fork) and 3000 (parent) are intentionally distinct product surfaces, not drift to reconcile. Keeps fork's Controller Summary, cluster_nodes table, tenant banner, partition click-toggle, state reset. Honors the standing `feedback_never_touch_parent.md` memory. | — |
-| `cluster_nodes` render-gate relaxation | One-line edit: `isController && f5osOverview.cluster_nodes.length > 0` → `f5osOverview.cluster_nodes.length > 0`. Now lights up the per-blade table for VELOS partition (8 blades on `partition.tar`) and rSeries (1 node on `rSeries.tar`) — previously hidden behind the controller-only half of the guard. | [webapp/app/qkview/page.tsx:913](webapp/app/qkview/page.tsx#L913) |
-| **PII scrub — three real leaks caught** | Pre-push `git diff origin/main..HEAD` + source-wide regex swept for the customer patterns flagged in the local (gitignored) scrub-helper note. Three hits: (1) a docstring example in `extractor.py` carrying a real customer hostname + base-MAC — already public in initial commit, sanitized going forward to a synthetic RFC-style example; (2) exact tenant-name equality assertions in the rSeries integration test — replaced with cardinality + non-empty shape assertions so the test still regresses without recording customer tenant IDs; (3) Session 1 TODO line that enumerated the scrub patterns verbatim — rewrote generically, kept the real-pattern list in a local gitignored note. | [backend/qkview_analyzer/extractor.py:783-789](backend/qkview_analyzer/extractor.py#L783-L789), [backend/tests/test_f5os_extractor.py:107-109](backend/tests/test_f5os_extractor.py#L107-L109), [TODO.md](TODO.md) |
-| Port default alignment on 3001 / 8001 | The seven Session-1-carryover M files all pointed one direction: the fork should default to 3001 / 8001 so it coexists with the parent `f5.assistant` (3000 / 8000). Committed as one coherent unit — CLAUDE.md, README.md, scripts/run.{sh,ps1}, both Next.js proxy route defaults. Launchers honor `FRONTEND_PORT` / `BACKEND_PORT` env overrides and wire `FRONTEND_ORIGIN` / `FASTAPI_BACKEND_URL` to the child processes. | [scripts/run.sh](scripts/run.sh), [scripts/run.ps1](scripts/run.ps1), [webapp/app/api/analyze/route.ts:5](webapp/app/api/analyze/route.ts#L5), [webapp/app/api/qkview/\[id\]/apps/\[...path\]/route.ts:3](webapp/app/api/qkview/%5Bid%5D/apps/%5B...path%5D/route.ts#L3) |
-| `xml_stats` ca-bundle filter — `prerem_*` tombstones | Trust-store rollup only matched `.crt.<digits>` suffix, so post-upgrade `.crt.prerem_<...>` tombstones slipped through as user-certs into the expiry panel and top-N lists. Added a path-segment match on `(?:f5-)?ca-bundle\.crt\.` as the primary signal, kept the old digit regex as fallback. | [backend/qkview_analyzer/xml_stats.py](backend/qkview_analyzer/xml_stats.py) |
-| Stale backend → empty `logs_db/` | After user reported chip counts all `(0)` and `"Limiting closed port RST"` returning "Not Found" on a phrase that was visible in the same tile. Backend at PID 193833 had `lstart=Mon Apr 20 21:08:16 2026` — predated the Session 4 logs_db commit `6f8bfa3`. Running code had no `LOGS_DB_DIR`, no `_logs_db_path`, no `/logs/sources`, no `/logs`. Killed + restarted from current source; fresh upload created `backend/logs_db/logs_<id>.db`; chips + FTS5 search confirmed working by user. | — |
-| Brand rename: "QKView Log Analyzer" → "QKView Analyzer" | Global rename, 4 occurrences across landing page, analyzer page header, CLI docstring, package docstring. | [webapp/app/page.tsx:22](webapp/app/page.tsx#L22), [webapp/app/qkview/page.tsx:604](webapp/app/qkview/page.tsx#L604), [backend/qkview_analyzer/cli.py:85](backend/qkview_analyzer/cli.py#L85), [backend/qkview_analyzer/__init__.py:1](backend/qkview_analyzer/__init__.py#L1) |
-
-### Commit arc — 8 commits landed on origin/main
-
-Before this session, `origin/main` was at `2222b83` (CLAUDE.md docs only). This session resulted in the first meaningful public push of the fork. Commits, oldest-to-newest on the public push:
-
-| SHA | Type | Summary |
-|---|---|---|
-| `9357335` | chore(session) | session-end skill + SESSION_STATE + TODO (from Session 1, finally pushed) |
-| `96b597d` | fix(webapp) | reset view state on new upload + distinguish VELOS variants (Session 2) |
-| `8dcb0b3` | docs(session) | capture Session 3 archive audit + fork-vs-parent diff findings |
-| `6f8bfa3` | feat(logs) | interactive log search inside Extracted Critical/Warning Logs tile (Session 4) |
-| `ef6a70c` | chore(privacy) | scrub customer identifiers from docstrings, tests, and TODO |
-| `f054e66` | chore(ports) | default to 3001 / 8001 so the fork coexists with f5.assistant |
-| `2dc18ec` | fix(xml_stats) | filter prerem_* ca-bundle tombstones from cert rows |
-| `f98b96a` | feat(ui) | show cluster_nodes table for all F5OS archives that carry nodes |
-
-### Verified end-to-end
-
-- After stale-webapp restart: `curl http://localhost:3001/_next/static/chunks/*.css` → 200, 27 KB Tailwind output; browser renders styled page.
-- After stale-backend restart: fresh upload through UI → `backend/logs_db/logs_<id>.db` persisted; user confirmed chips + phrase search live.
-- `git push origin main`: `2222b83..f98b96a  main -> main` clean fast-forward.
-- Post-push regex re-sweep for customer PII patterns: no hits outside gitignored HAR files.
-
-### Unresolved / carried forward
-
-- **The `extractor.py` docstring PII leak is already public.** Initial commit `f27edce` carrying a real customer hostname + base-MAC (see local scrub-helper note for the exact strings) was pushed before this session's audit. The scrub in `ef6a70c` fixes the current tree, but git history on public origin (and any fork / cache / mirror) retains the old values. History-rewrite is the only way to un-publish and would require coordinated `git push --force` on the public origin — out of scope for this session per CLAUDE.md destructive-action rule. User should decide whether this warrants history rewrite or an accept-and-move-on stance.
-- **`.run_one.sh` / `.run_one_parent.sh` still untracked** at repo root. Session 3 flagged the promote-or-delete decision; this session did not touch them. They drive the seven-archive sweep against each backend and dump result JSONs to `/tmp/` — session-research tooling with embedded customer-archive paths.
-- **rSeries integration test tenant-name assertion was weakened** to `len == 2 and all non-empty` rather than exact ID equality. The weaker assertion passes on any 2-tenant fixture; the original was fixture-specific. If a future rSeries fixture has a different tenant count the test will need adjustment — previously it would have failed louder.
-- **The "QKView Analyzer" rename landed on disk but the running webapp on 3001 still serves the pre-rename build.** Source edits happened after the Session 5 rebuild; `.next/` on disk still corresponds to the pre-rename state. Next session (or the user right now) needs `cd webapp && npm run build` + restart to pick it up.
-
-### Next session should open with
-
-1. Rebuild + restart the webapp so the "QKView Analyzer" rename is live in the browser. `cd webapp && npm run build` → kill 3001 next-server → restart with `PORT=3001 FASTAPI_BACKEND_URL=http://127.0.0.1:8001 npm run start`.
-2. Decide how to handle the `extractor.py` PII leak now that it's public — accept, rotate out via history rewrite, or document as known-accepted risk.
-3. Close out the Session 3 `.run_one*.sh` promote-or-delete decision — they've carried through four sessions.
-
----
-
-## Session 4 — 2026-04-21
-
-Focus: interactive log search inside the "Extracted Critical/Warning Logs" tile, with the tile relocated to sit directly under the System Status + Known Issues grid. User's framing referenced iHealth's Lucene-style syntax and the standard log-source list (LTM / TMM / GTM / APM / ASM / REST API). Proposal was greenlit on all four points before implementation; direction calls locked at the top: per-analysis `.db` files (not a single shared table), chips for log families only (config files excluded).
-
-### Completed
-
-| Area | Change | Files |
-|---|---|---|
-| Persisted FTS5 log index per analysis | `LogIndexer` now writes to `backend/logs_db/logs_<analysis_id>.db`. Built at a temp path (`.tmp_logs_<pid>_<ms>.db`), renamed via `os.replace` after the `analyses` row is INSERTed so the on-disk id matches the DB row. Indexer is closed explicitly before rename (Windows file-lock portability). Failed-analyze paths clean up the temp file. Typical on-disk cost: ~40 MB (small TMOS) to ~125 MB (tmos_ve.qkview, 3832 warning+ entries). | [backend/main.py:86-107](backend/main.py#L86-L107), [backend/main.py:204-213](backend/main.py#L204-L213), [backend/main.py:329-346](backend/main.py#L329-L346), [backend/main.py:396-417](backend/main.py#L396-L417) |
-| `GET /api/qkview/{id}/logs/sources` | Opens the per-analysis DB read-only, returns aggregated chip counts (`ltm` / `tmm` / `gtm` / `apm` / `asm` / `restjavad`) plus the full `source_file → count` breakdown. Chip aggregation uses four LIKE patterns per chip to cover clean basenames, rotated variants (`.1`, `.2_transformed`), and path-prefixed F5OS layouts (`host/ltm`, `velos-partition-*/ltm`). | [backend/main.py:455-483](backend/main.py#L455-L483) |
-| `GET /api/qkview/{id}/logs` | FTS5-backed search with composable filters (`q`, `source`, `severity`, `process`, `limit`, `offset`). Query parser translates a Lucene subset into FTS5: phrases `"..."`, `AND`/`OR`/`NOT`, prefix `foo*`, negation shorthand `-word` → `(pos) NOT (neg)`, and field filters `log:<name>` / `severity:<level>` / `process:<name>` extracted into SQL WHERE conditions. Bad FTS5 syntax bubbles out as HTTP 400 with the sqlite error surface. raw_line truncation mirrors `/api/analyze`'s 2 KB cap so a single 88 MB VELOS entry can't kill the UI. | [backend/main.py:419-453](backend/main.py#L419-L453), [backend/main.py:486-575](backend/main.py#L486-L575) |
-| CORS allow GET | `POST, OPTIONS` → `GET, POST, OPTIONS`. The webapp proxies server-side so CORS doesn't strictly gate the new routes, but this lets the backend be hit directly from the browser for debugging without a preflight failure. | [backend/main.py:87](backend/main.py#L87) |
-| Next.js proxies | Two new App Router routes forwarding `/api/qkview/{id}/logs` and `/logs/sources` to `FASTAPI_BACKEND_URL`. Preserve query string verbatim. Mirror the existing `/apps/[...path]` proxy's conventions. | [webapp/app/api/qkview/\[id\]/logs/route.ts](webapp/app/api/qkview/[id]/logs/route.ts), [webapp/app/api/qkview/\[id\]/logs/sources/route.ts](webapp/app/api/qkview/[id]/logs/sources/route.ts) |
-| `LogsSearchTile` component | Self-contained client component. Loads chip counts once per `analysisId`; debounced 300 ms search with request cancellation on keystroke; terminal-style result rendering mirrors the original tile's styling; chips dim (disabled + grey) when count is 0 so users see at-a-glance what isn't provisioned; severity dropdown (All / Warning+ / Error+ / Critical+ / Emergency); help popover documents the supported query subset and flags that regex / fuzzy aren't supported. When no filter is active, renders the static server-trimmed `analysisResult.entries` exactly as before — zero regression for the quick-look case. | [webapp/app/components/LogsSearchTile.tsx](webapp/app/components/LogsSearchTile.tsx) |
-| Tile relocation | Old inline terminal block (1444–1480) removed from `page.tsx`. New `<LogsSearchTile>` mount sits directly after the `<div className="grid md:grid-cols-2 gap-6">` that contains System Status + Known Issues Detected — matches the user's requested ordering. `LogsSearchTile` imported from `../components/LogsSearchTile`. | [webapp/app/qkview/page.tsx:5](webapp/app/qkview/page.tsx#L5), [webapp/app/qkview/page.tsx:858-865](webapp/app/qkview/page.tsx#L858-L865) |
-| `.gitignore` coverage | `backend/logs_db/` added so per-analysis FTS5 files — which contain log lines, hostnames, and F5 message codes from real customer archives — can never leak to the public origin. Also swept in the Session 1–2 carryover PII rules (`*.tar`, `/qkview/`, `*.har`, screenshots) that had been sitting in the working tree; all consistent with [CLAUDE.md](CLAUDE.md) "Secrets, credentials, and PII". | [.gitignore](.gitignore) |
-
-### Verified end-to-end
-
-- Analyzed `tmos_ve.qkview` against a test backend on :8801 → analysis_id 41, 3832 warning+ entries, `logs_db/logs_41.db` persisted at ~125 MB on disk.
-- `/logs/sources` returned `ltm:2719 tmm:0 gtm:220 apm:630 asm:1 restjavad:0` — zero-count chips correctly flag what this archive didn't carry (no dedicated tmm log on TMOS VE; no restjavad.*.log under `var/log/` for this lab build).
-- Through the Next.js proxy on :3801, combined `q=mcpd source=ltm severity=warning` returned exactly 3 matches, all real (`mcpd[4346]: 01070927:3 Request failed` err-level + two `promptstatusd` warnings on `mcpd.ru*`).
-- Bad FTS5 (`q=(broken`) → HTTP 400 with `"Invalid search query: fts5: syntax error near \"\""` passed through to the client.
-- 404 on unknown analysis (`/api/qkview/99999/logs/sources`) propagates cleanly through the proxy.
-- `npm run build` clean (Next.js 16 + Turbopack, TypeScript clean, 9-worker static generation); both new routes register as dynamic server routes.
-
-### Pre-session small-fry swept in
-
-- `backend/main.py` had a Session 1–2 carryover: `_ALLOWED_ORIGIN` default was still `http://localhost:3000`. Updated to `3001` so the fork's default port actually matches its advertised CORS origin. Unrelated to the log-search work but correct and small enough to keep the commit coherent.
-
-### Unresolved / carried forward
-
-- **Standalone negation queries (`-foo` with no positive term) silently drop the negation.** FTS5 requires at least one positive term; `_parse_log_query` returns `fts=None` in that case, and with no field filters the endpoint falls back to "match everything" rather than "match everything *except* foo". Low impact — users naturally include positive terms — but could be hardened with a 400 ("negation-only queries require a positive term") if it bites anyone.
-- **No retention sweep for `backend/logs_db/`.** Each analysis leaves a persistent `.db` file (40–125 MB typical). An analyses row could be deleted from `local_qkview.db` without cleaning up its matching logs file; conversely `logs_db/` could accumulate without bound. Acceptable for field-engineer workflow, but worth a cleanup CLI / startup sweep later.
-- **iHealth query parity is intentional partial.** Regex (`/ab[cd]*/`) and fuzzy (`rat~`) aren't supported — FTS5 doesn't do them natively and bolting them on would be slow on multi-hundred-MB indexes. Documented in the in-tile help popover. Only matters if a user is muscle-memory on those iHealth features.
-- **The seven unrelated `M` files from Session 1 carryover are still uncommitted** (`CLAUDE.md`, `README.md`, `backend/qkview_analyzer/xml_stats.py`, `scripts/run.{sh,ps1}`, `webapp/app/api/analyze/route.ts`, `webapp/app/api/qkview/[id]/apps/[...path]/route.ts`). Not touched this session — intentionally left out of the Session 4 commit to keep it scoped to the log-search feature.
-- **`.run_one.sh` / `.run_one_parent.sh`** (Session 3 sweep scripts) also still untracked at the repo root — same carryover as Session 3's TODO.
-
-### Next session should open with
-
-1. Confirm the log-search tile behaves as intended in the real browser (smoke test was curl-driven; `npm run build` + TypeScript clean proves compile-correctness, not visual correctness). Start `./scripts/run.sh`, upload `qkview/tmos_ve.qkview`, exercise the chips / severity dropdown / help popover / a few queries.
-2. Decide disposition of the 7 long-carry `M` files. A surgical staging pass would let them be committed as coherent units instead of bleeding into whatever the next feature commit touches.
-3. If `logs_db/` on-disk growth becomes a concern during dogfooding, add either (a) a "Delete" button on the analysis page that wipes both the `analyses` row and the matching `logs_<id>.db`, or (b) a startup sweep that removes orphan `logs_*.db` files with no matching row.
-
----
-
-## Session 3 — 2026-04-20
-
-Focus: full audit of the seven sample archives against the fork (3001 / 8001) vs the parent `f5.assistant` (3000 / 8000). User asked two things in sequence — (1) grade each archive for what renders cleanly, (2) diff fork vs parent and reconcile so the 3001 pages match 3000. No code changes were made this session; the second step surfaced a direction question that needs a user decision before editing.
-
-### Completed — research only
-
-| Area | Finding | Evidence |
-|---|---|---|
-| All 7 archives analyzed end-to-end on fork backend | Each POSTed as raw octet-stream to `http://127.0.0.1:8001/api/analyze`; final `{"type":"result"}` event captured to `/tmp/qkview-analysis-results/<name>.result.json`. Sizes 18 MB → 773 MB, times 10 s → 77 s. | [backend/main.py:120-379](backend/main.py#L120-L379) (NDJSON stream) |
-| All 7 archives analyzed end-to-end on parent backend | Same POST pattern against `:8000`, results to `/tmp/qkview-analysis-parent/<name>.result.json`. Runtimes within a couple of seconds of fork. | — |
-| Archive family + variant detection verified | Fork's `_detect_f5os_variant` correctly tags `rseries` / `velos-partition` / `velos-controller` for the three F5OS archives; three TMOS archives carry `""`; partition list matches on all. | [backend/qkview_analyzer/extractor.py:526-561](backend/qkview_analyzer/extractor.py#L526-L561) |
-| Per-archive render fitness reported | Panels that render cleanly on each archive vs. keys the fork collects but never paints. See next table. | — |
-| **cluster_nodes rendering gap identified** | `f5os_overview.cluster_nodes` carries 8 blades on `partition.tar` and 1 node on `rSeries.tar`, but the per-blade table at [page.tsx:906](webapp/app/qkview/page.tsx#L906) is gated behind `isController`. Non-controller F5OS archives lose that data silently. `cluster_summary` string still renders in the header. | [webapp/app/qkview/page.tsx:906-932](webapp/app/qkview/page.tsx#L906-L932) |
-| Fork vs parent — backend payloads | Effectively identical across all 7 archives. Same key set, same partition lists, same app/finding/entry counts, same xml_stats sections. Only delta: fork adds `device_info.f5os_variant` (parent omits the field). | — |
-| Fork vs parent — webapp `page.tsx` | Fork is **strictly a superset**. Diff: 98 lines unique to fork, 19 lines unique to parent (all of which are lines the fork *rewrote*, not feature removals). Fork-only additions: `isController` branch, Controller Summary card, `cluster_nodes` per-blade table, tenant-not-included banner, partition click-to-toggle, empty-bucket `displayedApps` fallback, state reset on new upload (commit `96b597d`). | — |
-| Fork vs parent — other webapp files | All differences intentional fork identity: backend URL `8001` (vs `8000`), brand `Local.Qkview` (vs `F5 Assistant`), nav strips `Knowledge` / `Reference` / `Generator` / `Validator` links per [CLAUDE.md](CLAUDE.md) scope rules. | [webapp/app/api/analyze/route.ts:5](webapp/app/api/analyze/route.ts#L5), [webapp/app/layout.tsx:11-12](webapp/app/layout.tsx#L11-L12) |
-
-### Per-archive render report (fork 3001)
-
-| Archive | Family | VS apps | Partitions | Tenants / blades | Renders cleanly | Collected-but-dropped |
-|---|---|---:|---|---|---|---|
-| `tmos_ve.qkview` | TMOS Z100 17.5.1.5 | 7 | `[Common]` | — | all TMOS panels | — |
-| `tmos_admin_part.qkview` | TMOS C112 13.1.3 | 78 | `[Common, DMZ, public]` | — | all TMOS panels incl. partition switch | — |
-| `iseries.qkview` | TMOS C117 17.5.1.3 | 2 | `[Common]` | — | all TMOS panels (small but legit) | — |
-| `vCMP.tgz` | TMOS Z101 17.1.3 | **1961** | `[Common]` | — | all panels; table is un-virtualized | — |
-| `rSeries.tar` | F5OS-A `rseries` | 0 | — | 2 tenants, 1 node | overview + portgroups + tenants | **cluster_nodes (1 node)** |
-| `syscon.tar` | F5OS-C `velos-controller` | 0 | — | 0 | Controller Summary (PID/Code/Part #) | empty cluster_nodes/portgroups/tenants (legit — syscon) |
-| `partition.tar` | F5OS-C `velos-partition` | 0 | — | 5 tenants, 8 blades | overview + portgroups + tenants | **cluster_nodes (8 blades: 2 ready / 6 not)** |
-
-### Unresolved / carried forward
-
-- **User directional decision needed before any 3001-vs-3000 reconciliation edit.** Options presented to user:
-  - (A) Remove fork enhancements to match parent — strips Controller Summary, cluster_nodes table, tenant banner, partition click-toggle, state reset (undoes commit `96b597d` + related).
-  - (B) Keep fork enhancements, pull in any parent-only feature the fork lacks — but the bidirectional diff found zero parent-only features on `page.tsx`.
-  - (C) A runtime rendering difference the user spotted in the browser that doesn't come from source drift.
-  - My recommendation is (B)/(C): fork's extras are real bug fixes + real value, and [CLAUDE.md](CLAUDE.md) explicitly forbids modifying the parent. Awaiting user.
-- **cluster_nodes render guard is still too narrow.** The render gate at [webapp/app/qkview/page.tsx:906](webapp/app/qkview/page.tsx#L906) uses `isController && f5osOverview.cluster_nodes.length > 0`. Relaxing the controller-only half to just `cluster_nodes.length > 0` would light up blade inventory for VELOS partition + rSeries with zero other changes. Held pending the (A)/(B)/(C) decision above — under (A) this needs to be removed instead of widened.
-- **`.run_one.sh` / `.run_one_parent.sh` sit in the working tree** as leading-dot runner scripts used to drive the seven-archive sweep against each backend. Kept local (not committed) — session-research tooling, not product code. `.gitignore` doesn't cover them; next session should decide: promote to `scripts/` or delete.
-- **Same pre-existing uncommitted file set as Session 2.** Still dirty: `.gitignore`, `CLAUDE.md`, `README.md`, `backend/main.py`, `backend/qkview_analyzer/xml_stats.py`, `scripts/run.{sh,ps1}`, `webapp/app/api/analyze/route.ts`, `webapp/app/api/qkview/[id]/apps/[...path]/route.ts`. Not touched this session — see TODO "High" carryover.
-
-### Next session should open with
-
-1. Get the reconciliation direction from the user ((A)/(B)/(C) above). Without that call, no edits ship.
-2. If the answer is (B), ship the one-line gate relaxation on `cluster_nodes` so VELOS partition blade inventory and rSeries node info render for non-controller F5OS.
-3. Clean up the working tree: triage the Session-1 pre-existing `M` files and decide whether to keep or delete the `.run_one*.sh` sweep scripts.
-
----
-
-## Session 2 — 2026-04-20
-
-Focus: "Configured Virtual Servers (7) but empty rows" bug on tmos_ve.qkview reported via [v3_localhost.har](v3_localhost.har) and `qkview/tmos_ve_ no_VS.png`. Plus a machine-pass across all seven sample archives, and a follow-up on whether the VELOS partition-vs-controller detector was conflating the two.
-
-### Completed
-
-| Area | Change | Files |
-|---|---|---|
-| Root cause found | `activePartition` React state persisted across uploads. Upload sequence was `tmos_admin_part.qkview` (partitions `[Common, DMZ, public]`, user clicked DMZ + public per HAR) → `tmos_ve.qkview` (partitions `[Common]`). On the second upload, `activePartition` still held `"public"`, so `appsByPartition["public"]` = undefined → empty table, while the header counter read straight off `apps.length` → `(7)`. | — |
-| UI state reset | On new upload, clear `activePartition`, `activeCmd`, `showRawStanzas` alongside the existing `selectedAppPath` / `appDetails` / `appDetailsError` resets. | [webapp/app/qkview/page.tsx:588-590](webapp/app/qkview/page.tsx#L588-L590) |
-| F5OS variant detection | New `f5os_variant` field on `DeviceMeta`, classifying archives as `rseries` / `velos-partition` / `velos-controller` by inspecting *local* (non-peer-qkview) top-level subpackage names. Priority: `vcc-confd` → controller, `partition\d*_manager` → partition, `system_manager` / `appliance_orchestration_manager` → rseries. Required because F5OS's own `PRODUCT.Platform` field reports `controller` for *both* VELOS flavors — detector faithfully echoes PRODUCT but downstream UI needs the distinction. | [backend/qkview_analyzer/extractor.py:44-51](backend/qkview_analyzer/extractor.py#L44-L51), [backend/qkview_analyzer/extractor.py:519-555](backend/qkview_analyzer/extractor.py#L519-L555), [backend/qkview_analyzer/extractor.py:1297](backend/qkview_analyzer/extractor.py#L1297) |
-| Payload wiring | `f5os_variant` serialized into the analyze payload's `device_info`. | [backend/qkview_analyzer/reporter.py:302](backend/qkview_analyzer/reporter.py#L302) |
-| UI variant gate | `isController` now keys off `f5os_variant === 'velos-controller'` instead of `platform === 'controller'`, so VELOS partition archives render their tenant panel (previously hidden). | [webapp/app/qkview/page.tsx:392-398](webapp/app/qkview/page.tsx#L392-L398) |
-
-### Machine-pass results — all seven sample archives
-
-| Archive | Product | `f5os_variant` | Apps | Partitions | Tenants | Status |
-|---|---|---|---|---|---|---|
-| tmos_ve.qkview | BIG-IP | `""` | 7 | [Common] | — | ✓ table now renders |
-| tmos_admin_part.qkview | BIG-IP | `""` | 78 | [Common, DMZ, public] | — | ✓ baseline |
-| iseries.qkview | BIG-IP | `""` | 2 | [Common] | — | ✓ baseline |
-| vCMP.tgz | BIG-IP | `""` | **1961** | [Common] | — | ✓ renders; no search/filter |
-| rSeries.tar | F5OS-A | `rseries` | — | — | 2 | ✓ unchanged |
-| partition.tar | F5OS-C | `velos-partition` | — | — | **5** | **✓ fixed — tenants were hidden** |
-| syscon.tar | F5OS-C | `velos-controller` | — | — | 0 | ✓ correctly suppressed |
-
-### Tests
-
-- Backend pytest: **25 passed, 31 skipped** (fixture-gated skips expected).
-- Webapp build (Next.js 16 + turbopack): ✓ compiled, TypeScript clean.
-- `npm run lint`: still fails with "Invalid project directory" — `next lint` is deprecated in Next.js 16 (pre-existing, not a regression from this session).
-
-### Unresolved / carried forward
-
-- **vCMP.tgz has 1961 virtual servers on one partition.** Renders inside the 600px scroll block but no search / client-side filter. Usable, not scalable. [webapp/app/qkview/page.tsx:1081-1111](webapp/app/qkview/page.tsx#L1081-L1111)
-- **[CLAUDE.md](CLAUDE.md) "What this is" table says `partition_manager`.** Real VELOS partition archives use `partition1_manager` (chassis hosts `partition1..N`). The new detector regex handles both, but the doc should be updated.
-- **VELOS controller tenant inventory.** `syscon.tar` ships with 0 tenants here and the UI correctly hides the panel. Open product question: if a controller archive ever carries an aggregate read-only inventory, should it be surfaced?
-- **11 pre-existing modified files stay uncommitted.** Same WIP set Session 1 flagged (`.gitignore`, `CLAUDE.md`, `README.md`, `backend/main.py`, `backend/qkview_analyzer/xml_stats.py`, `scripts/run.{sh,ps1}`, `webapp/app/api/analyze/route.ts`, `webapp/app/api/qkview/[id]/apps/[...path]/route.ts`) — I did not touch them this session.
-- **page.tsx had pre-existing WIP** (F5OS Controller Summary blocks, Cluster Nodes table, tenant-explanation banner, partition-click toggle refactor). Since this session edited the same file, that prior WIP gets swept into this session's commit — no clean way to slice without interactive staging.
-
-### Next session should open with
-
-1. Audit whether VELOS *controller* archives should surface a read-only tenant inventory (decision needed before any follow-up change).
-2. Patch [CLAUDE.md](CLAUDE.md)'s `partition_manager` reference → `partition\d*_manager` to match reality.
-3. Add search / virtualization to the Configured Virtual Servers table to make vCMP-scale archives (≥1000 VS) usable.
-
----
-
-## Session 1 — 2026-04-20
-
-### Completed
-
-| Item | Detail |
-|---|---|
-| Reviewed [v4_localhost.har](v4_localhost.har) | 20 entries, all 200. 7 `/api/analyze` POSTs covering all four archive families (`vCMP.tgz`, `iseries.qkview`, `tmos_admin_part.qkview`, `tmos_ve.qkview`, `syscon.tar`, `rSeries.tar`, `partition.tar`) + 5 drill-down GETs + 7 Next.js `_rsc` prefetches. |
-| Timing characterized | `wait` is 7–15 ms across the board — backend picks up instantly; full cost is in `receive` (streaming NDJSON). Outliers: `vCMP.tgz` 77 s receive, `partition.tar` 64 s receive. |
-| Ported `session-end` skill from parent | Adapted [f5.assistant/.claude/skills/session-end/SKILL.md](../f5.assistant/.claude/skills/session-end/SKILL.md) → [.claude/skills/session-end/SKILL.md](.claude/skills/session-end/SKILL.md). Deltas: flat paths (no `F5/`), first-run create-if-missing for SESSION_STATE/TODO, qkview commit author convention, explicit "do not push" for public-origin safety. |
-
-### Unresolved
-
-- **HAR files contain real customer data.** Drill-down response bodies in [v4_localhost.har](v4_localhost.har) (entries 1, 3, 5, 6, 8) include Target Corp / Southern Company hostnames, internal IPs, and virtual/pool names pulled from non-fixture archives. `.gitignore:40` covers `*.har` so commits are safe, but the file must stay local until scrubbed. Same concern likely applies to [v1_localhost.har](v1_localhost.har), [v2_localhost.har](v2_localhost.har), [v3_localhost.har](v3_localhost.har) — not audited.
-- **Working tree has 12 pre-existing modified files** from prior sessions (`.gitignore`, `CLAUDE.md`, `README.md`, `backend/main.py`, `backend/qkview_analyzer/{extractor,reporter,xml_stats}.py`, `scripts/run.{sh,ps1}`, `webapp/app/api/analyze/route.ts`, `webapp/app/api/qkview/[id]/apps/[...path]/route.ts`, `webapp/app/qkview/page.tsx`). Not touched this session — intentionally left out of the session-end commit.
-
-### Next steps
-
-1. Decide disposition of the 12 uncommitted `M` files — either commit (after verifying they match a coherent unit of work) or revert.
-2. If HAR captures are worth preserving for CI/benchmarking, build a scrub helper (swap customer hostnames/IPs for RFC5737 + synthetic names) so a sanitized sample can live in-tree.
-3. Before first `git push` to the public origin: run `git diff origin/main..HEAD` eyeball-scrub per [CLAUDE.md](CLAUDE.md) "Secrets, credentials, and PII" — origin repo isn't pushed yet per `git log`.
+Older sessions (1–9, 2026-04-20 → 2026-09-14) are in
+[.archived/SESSION_STATE_archive_through-2026-09-14.md](.archived/SESSION_STATE_archive_through-2026-09-14.md).

@@ -12,6 +12,8 @@ Upload a `.qkview`, `.tgz`, `.tar.gz`, or `.tar` diagnostic archive and get back
 - **Log analysis** — parses every `var/log/*.log` (TMOS: `ltm`, `tmm`, `apm`, `asm`, `gtm`, `audit`, `daemon`, `restjavad*`; F5OS: event-log, system-events, per-subpackage logs), indexes them into an in-memory SQLite FTS table, and ranks by severity.
 - **Known-issue matching** — a YAML-driven rule engine matches F5 message codes (e.g. `01070638`) and regex patterns, including time-windowed correlation for paired events. Rules live in `backend/rules/` — editing them is a config change, not a code change.
 - **Configuration walk** — parses `bigip.conf`, `bigip_base.conf`, and per-partition dumps into a universal TMOS tree. Drill into virtual servers, pools, members, profiles, and iRules per partition.
+- **Chassis inventory (VELOS)** — a controller archive carries no tenant list at all (tenants live on the partitions), so it surfaces the chassis-wide **partition** inventory instead: name, id, blade OS and service versions, and each controller with its status and age. Tenants render from a partition archive.
+- **Analysis history** — every analysis is listed with the size of its on-disk log index, and can be deleted from the UI. Deleting removes the summary row, the captured files and the `logs_<id>.db` together, which is the only way to reclaim the 40–125 MB each analysis leaves behind.
 - **Platform awareness** — automatically detects the four QKView layouts (flat TMOS VE, F5OS rSeries, VELOS partition, VELOS controller) and reads `manifest.json` to resolve MD5-hashed command outputs.
 
 ## Supported archive types
@@ -142,7 +144,8 @@ After the one-time install above, use the launcher scripts in `scripts/`:
 ```
 local.qkview/
 ├── backend/                    FastAPI service, port 8001
-│   ├── main.py                 4 routes: /health, /api/analyze, /api/qkview/{id}/apps, .../apps/{path}
+│   ├── main.py                 API: /health, /api/analyze, /api/qkview (list + DELETE),
+│   │                           .../apps, .../files, .../logs, .../logs/sources, .../export
 │   ├── qkview_analyzer/        extractor, parser, indexer, rule_engine, reporter, tmos_config, xml_stats
 │   ├── rules/                  YAML rule library (tmos_known_issues, f5os_hardware)
 │   ├── tests/                  pytest suite
@@ -155,7 +158,11 @@ local.qkview/
 │   │   └── api/                thin proxies to the backend
 │   ├── package.json            next, react, next-themes, lucide-react — nothing else
 │   └── next.config.js          CSP + security headers
-├── scripts/run.sh|run.ps1      one-shot launchers
+├── scripts/
+│   ├── run.sh | run.ps1        one-shot launchers
+│   ├── har_scrub.py            strips customer identifiers out of a browser HAR
+│   ├── profile_analyze.py      per-stage timing of the analyze pipeline
+│   └── browser_smoke.mjs       end-to-end UI check over the DevTools Protocol
 ├── LICENSE                     Apache-2.0
 ├── NOTICE                      third-party attributions (f5-corkscrew)
 └── README.md
@@ -166,7 +173,7 @@ local.qkview/
 Two cooperating processes:
 
 1. **FastAPI backend** (`backend/`, port 8001) unpacks the archive, parses logs, builds an in-memory SQLite FTS5 index, parses TMOS configuration, runs the rule engine, and persists a summary to `backend/local_qkview.db`.
-2. **Next.js frontend** (`webapp/`, port 3001) serves the UI. Two API routes proxy to the backend: `POST /api/analyze` (the archive upload) and `GET /api/qkview/{id}/apps/{path}` (virtual-server drill-down). The frontend does not talk to the backend directly from the browser — the server-side proxy keeps the backend on localhost.
+2. **Next.js frontend** (`webapp/`, port 3001) serves the UI. Every backend call goes through a server-side proxy under `webapp/app/api/` — the archive upload, the virtual-server drill-down, log search, the file explorer, findings export, and the analysis list and delete. The browser never talks to the backend directly, which keeps the backend on localhost.
 
 The analyzer pipeline, in order:
 
@@ -188,6 +195,18 @@ No code change needed — edit `backend/rules/tmos_known_issues.yaml` or `backen
 source .venv/bin/activate
 cd backend
 pytest
+```
+
+Unit tests run anywhere. The integration tests additionally need real archives
+(`tmos_ve.qkview`, `rSeries.tar`, `partition.tar`, `syscon.tar`); `backend/tests/conftest.py`
+looks in `$QKVIEW_FIXTURE_DIR`, then `backend/tests/fixtures/`, then `<repo>/qkview/`.
+**If you see `31 skipped`, the archives are not being found** — fix the path rather than
+accepting the skip, because a skip and a pass look identical in a green run.
+
+Frontend lint and build need Node 20.9+:
+
+```bash
+cd webapp && npm ci && npm run lint && npm run build
 ```
 
 ## Attribution
