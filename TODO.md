@@ -13,9 +13,9 @@ an `RT#n` is a stable reference for the maintainer rather than a link you can fo
 ## At a glance (generated — edit the ticket, not this block)
 
 <!-- rt-sync:begin -->
-_0 open in RT, rendered 2026-09-20 by `rt sync` — edit the ticket, not this line._
+_1 open in RT, rendered 2026-09-22 by `rt sync` — edit the ticket, not this line._
 
-_nothing open_
+🟡 **RT#375** backend/qkview_analyzer working tree is stale against HEAD in 3 files — whole functions missing, found during the blackbriar /home restore
 <!-- rt-sync:end -->
 
 ## High
