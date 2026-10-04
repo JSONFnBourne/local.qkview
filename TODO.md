@@ -13,9 +13,9 @@ an `RT#n` is a stable reference for the maintainer rather than a link you can fo
 ## At a glance (generated — edit the ticket, not this block)
 
 <!-- rt-sync:begin -->
-_1 open in RT, rendered 2026-09-22 by `rt sync` — edit the ticket, not this line._
+_1 open in RT, rendered 2026-10-04 by `rt sync` — edit the ticket, not this line._
 
-🟡 **RT#375** backend/qkview_analyzer working tree is stale against HEAD in 3 files — whole functions missing, found during the blackbriar /home restore
+🔵 **RT#561** extractor.py:477 tar.extract() without filter= — DeprecationWarning x7,887 per test run; default changes to 'data' on Python 3.14
 <!-- rt-sync:end -->
 
 ## High
