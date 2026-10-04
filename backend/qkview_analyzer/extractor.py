@@ -474,7 +474,14 @@ def _stream_extract_f5os_to_dir(
                 continue
 
             try:
-                tar.extract(member, path=str(dest_dir), set_attrs=False)
+                # RT#561: an explicit filter. Without one, Python 3.12/3.13 emit a
+                # DeprecationWarning per member (7,887 per test run) and 3.14 changes
+                # the default to 'data' anyway. 'data' also refuses device/FIFO
+                # members and anything resolving outside dest_dir -- the guards above
+                # already cover traversal and links, so regular files and dirs
+                # extract exactly as before. A refusal raises FilterError (a
+                # TarError) and is counted as skipped below.
+                tar.extract(member, path=str(dest_dir), set_attrs=False, filter="data")
                 extracted += 1
             except (tarfile.TarError, OSError) as e:
                 logger.debug("skip extract %s: %s", name, e)
